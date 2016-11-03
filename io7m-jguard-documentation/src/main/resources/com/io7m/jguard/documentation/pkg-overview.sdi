@@ -1,0 +1,5 @@
+[section [title Orientation] [id pkg.orientation]]
+[subsection [title Overview]]
+[paragraph]
+The [term [type package] jguard] package implements a set of tools for
+managing [link-ext [target "http://www.freebsd.org"] FreeBSD jails].

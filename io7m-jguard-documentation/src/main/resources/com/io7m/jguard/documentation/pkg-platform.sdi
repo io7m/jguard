@@ -1,0 +1,4 @@
+[section [title Platform Specific Issues]]
+[paragraph]
+The package only works on
+[link-ext [target "http://www.freebsd.org"] FreeBSD jails].
