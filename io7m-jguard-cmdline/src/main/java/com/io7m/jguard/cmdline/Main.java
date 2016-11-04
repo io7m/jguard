@@ -24,6 +24,10 @@ import com.io7m.jfunctional.Unit;
 import com.io7m.jguard.core.JailConfiguration;
 import com.io7m.jguard.core.JailConfigurationError;
 import com.io7m.jguard.core.JailConfigurations;
+import com.io7m.jguard.jailbuild.api.JailBuildType;
+import com.io7m.jguard.jailbuild.api.JailDownloadOctetsPerSecond;
+import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
+import com.io7m.jguard.jailbuild.implementation.JailBuild;
 import com.io7m.jguard.jailcontrol.api.JailControlException;
 import com.io7m.jguard.jailcontrol.api.JailControlType;
 import com.io7m.jguard.jailcontrol.fbsd_native.JailControlFBSDNative;
@@ -34,13 +38,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static com.io7m.jfunctional.Unit.unit;
 
@@ -67,13 +80,16 @@ public final class Main implements Runnable
 
     final CommandRoot r = new CommandRoot();
     final CommandStart start = new CommandStart();
+    final CommandDownloadBinaryArchive download = new CommandDownloadBinaryArchive();
 
     this.commands = new HashMap<>(8);
     this.commands.put("start", start);
+    this.commands.put("download-base-archive", download);
 
     this.commander = new JCommander(r);
     this.commander.setProgramName("jguard");
     this.commander.addCommand("start", start);
+    this.commander.addCommand("download-base-archive", download);
   }
 
   /**
@@ -157,11 +173,163 @@ public final class Main implements Runnable
     }
   }
 
+  @Parameters(commandDescription = "Download a binary archive for creating a jail")
+  private final class CommandDownloadBinaryArchive extends CommandRoot
+  {
+    @Parameter(
+      names = "-file",
+      required = true,
+      description = "The output file")
+    private String file;
+
+    @Parameter(
+      names = "-arch",
+      description = "Override the system architecture")
+    private String arch;
+
+    @Parameter(
+      names = "-release",
+      description = "Override the system release")
+    private String release;
+
+    @Parameter(
+      names = "-archive",
+      description = "Select a specific archive file")
+    private String archive_file = "base.txz";
+
+    @Parameter(
+      names = "-base-uri",
+      description = "Override the base URI")
+    private URI base_uri = URI.create(
+      "http://ftp.freebsd.org/pub/FreeBSD/releases/");
+
+    @Parameter(
+      names = "-retry",
+      description = "Set the number of retries for failed downloads (0 is unlimited)")
+    private int retry_max = 10;
+
+    CommandDownloadBinaryArchive()
+    {
+
+    }
+
+    @Override
+    public Unit call()
+      throws Exception
+    {
+      super.call();
+
+      final String archive_arch = this.getArch();
+      LOG.debug("arch: {}", archive_arch);
+      final String archive_release = this.getRelease();
+      LOG.debug("release: {}", archive_release);
+
+      final ExecutorService pool = Executors.newSingleThreadExecutor();
+      final JailBuildType jb = JailBuild.get(JailBuild.clients(), pool);
+
+      final Path out_file = Paths.get(this.file);
+      final Path out_file_tmp = Paths.get(this.file + ".tmp");
+
+      try {
+        int attempt = 0;
+
+        while (true) {
+          try {
+            ++attempt;
+
+            final JailDownloadProgressType progress =
+              JailDownloadOctetsPerSecond.get(
+                (total_expected, total_received, octets_per_second) ->
+                  LOG.info(
+                    "download ({}) {} / {} bytes ({} MiB/s)",
+                    CommandDownloadBinaryArchive.this.archive_file,
+                    Long.valueOf(total_received),
+                    Long.valueOf(total_expected),
+                    Double.valueOf((double) octets_per_second / 1000_000.0)),
+                Clock.systemUTC());
+
+            LOG.info(
+              "downloading {} - attempt {} of {}",
+              this.archive_file,
+              Integer.valueOf(attempt),
+              Integer.valueOf(this.retry_max));
+
+            final CompletableFuture<Path> f = jb.jailDownloadBinaryArchive(
+              out_file_tmp,
+              this.base_uri,
+              archive_arch,
+              archive_release,
+              this.archive_file,
+              Optional.of(progress));
+            f.get();
+
+            LOG.info("download completed");
+            LOG.debug("rename: {} → {}", out_file_tmp, out_file);
+            Files.move(
+              out_file_tmp,
+              out_file,
+              StandardCopyOption.ATOMIC_MOVE,
+              StandardCopyOption.REPLACE_EXISTING);
+
+            return unit();
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+          } catch (final ExecutionException e) {
+            LOG.error("download failed: ", e.getCause());
+
+            final boolean retry =
+              this.retry_max <= 0 || attempt < this.retry_max;
+
+            if (retry) {
+              LOG.debug("waiting 3 seconds for retry");
+              TimeUnit.SECONDS.sleep(3L);
+            } else {
+              LOG.error("giving up after too many retries");
+              Main.this.exit_code = 1;
+              return unit();
+            }
+          }
+        }
+      } finally {
+        LOG.debug("stopping download thread");
+        pool.shutdown();
+        pool.awaitTermination(10L, TimeUnit.SECONDS);
+      }
+    }
+
+    private String getArch()
+    {
+      String archive_arch = System.getProperty("os.arch");
+      if (this.arch != null) {
+        archive_arch = this.arch;
+      }
+      if (archive_arch == null) {
+        throw new ParameterException(
+          "Could not detect the system architecture and no override was provided");
+      }
+      return archive_arch;
+    }
+
+    private String getRelease()
+    {
+      String archive_release = System.getProperty("os.version");
+      if (this.release != null) {
+        archive_release = this.release;
+      }
+      if (archive_release == null) {
+        throw new ParameterException(
+          "Could not detect the system version and no override was provided");
+      }
+      return archive_release;
+    }
+  }
+
   @Parameters(commandDescription = "Start a file")
   private final class CommandStart extends CommandRoot
   {
     @Parameter(
       names = "-file",
+      required = true,
       description = "The file configuration file")
     private String file;
 

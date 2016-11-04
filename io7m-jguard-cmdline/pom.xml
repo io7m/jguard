@@ -34,6 +34,11 @@
       <artifactId>io7m-jguard-jailcontrol-native</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>${project.groupId}</groupId>
+      <artifactId>io7m-jguard-jailbuild-implementation</artifactId>
+      <version>${project.version}</version>
+    </dependency>
 
     <dependency>
       <groupId>com.io7m.jnull</groupId>
@@ -103,6 +108,12 @@
                 </filter>
                 <filter>
                   <artifact>org.ow2.asm:*</artifact>
+                  <includes>
+                    <include>**</include>
+                  </includes>
+                </filter>
+                <filter>
+                  <artifact>commons-logging:*</artifact>
                   <includes>
                     <include>**</include>
                   </includes>

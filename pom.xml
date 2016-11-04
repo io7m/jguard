@@ -19,6 +19,8 @@
     <module>io7m-jguard-cmdline</module>
     <module>io7m-jguard-core</module>
     <module>io7m-jguard-documentation</module>
+    <module>io7m-jguard-jailbuild-api</module>
+    <module>io7m-jguard-jailbuild-implementation</module>
     <module>io7m-jguard-jailcontrol-api</module>
     <module>io7m-jguard-jailcontrol-native</module>
     <module>io7m-jguard-libjail</module>
@@ -102,6 +104,16 @@
         <artifactId>junit</artifactId>
         <version>4.12</version>
       </dependency>
+      <dependency>
+        <groupId>org.jmockit</groupId>
+        <artifactId>jmockit</artifactId>
+        <version>1.28</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.marschall</groupId>
+        <artifactId>memoryfilesystem</artifactId>
+        <version>0.8.0</version>
+      </dependency>
 
       <dependency>
         <groupId>org.slf4j</groupId>
@@ -132,6 +144,12 @@
         <groupId>com.beust</groupId>
         <artifactId>jcommander</artifactId>
         <version>1.58</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.httpcomponents</groupId>
+        <artifactId>httpclient-osgi</artifactId>
+        <version>4.5.2</version>
+        <type>bundle</type>
       </dependency>
     </dependencies>
   </dependencyManagement>
