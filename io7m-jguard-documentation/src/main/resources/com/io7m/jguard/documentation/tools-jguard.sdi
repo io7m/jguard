@@ -3,6 +3,8 @@
 [paragraph]
 The [term [type command] jguard] command provides various
 functions for creating and supervising FreeBSD jails.
+
+[paragraph]
 [verbatim [type terminal] [include "tools-jguard-usage.txt"]]
 
 [paragraph]
