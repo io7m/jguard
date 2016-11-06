@@ -16,6 +16,7 @@
 
 package com.io7m.jguard.jailbuild.implementation;
 
+import com.io7m.jaffirm.core.Invariants;
 import com.io7m.jguard.core.JailConfiguration;
 import com.io7m.jguard.core.JailConfigurationType;
 import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
@@ -464,16 +465,18 @@ public final class JailBuild implements JailBuildType
       try (final TarArchiveInputStream stream_tar =
              new TarArchiveInputStream(stream_xz)) {
 
+        List<TarArchiveEntry> defer_links = List.empty();
         while (true) {
           final TarArchiveEntry entry = stream_tar.getNextTarEntry();
           if (entry == null) {
-            return;
+            break;
           }
 
           final long uid = entry.getLongUserId();
           final long gid = entry.getLongGroupId();
           final int mode = entry.getMode();
           final String name = entry.getName();
+          final long size = entry.getSize();
 
           if (!entry.isCheckSumOK()) {
             LOG.warn("incorrect checksum for {}", name);
@@ -481,13 +484,18 @@ public final class JailBuild implements JailBuildType
 
           String target = null;
           FileKind kind = null;
-          if (entry.isFile()) {
+          if (entry.isLink()) {
+            defer_links = defer_links.append(entry);
+            continue;
+          }
+
+          if (entry.isSymbolicLink()) {
+            target = entry.getLinkName();
+            kind = FileKind.SYMBOLIC_LINK;
+          } else if (entry.isFile()) {
             kind = FileKind.FILE;
           } else if (entry.isDirectory()) {
             kind = FileKind.DIRECTORY;
-          } else if (entry.isSymbolicLink()) {
-            target = entry.getLinkName();
-            kind = FileKind.SYMBOLIC_LINK;
           }
 
           this.jailUnpackFile(
@@ -497,8 +505,36 @@ public final class JailBuild implements JailBuildType
             gid,
             mode,
             name,
+            size,
             target,
             NullCheck.notNull(kind, "File kind"));
+        }
+
+        LOG.debug("completing deferred hard links");
+
+        for (final TarArchiveEntry entry : defer_links) {
+          Invariants.checkInvariant(
+            entry,
+            TarArchiveEntry::isLink,
+            e -> String.format("Entry %s is a hard link", e));
+
+          final long uid = entry.getLongUserId();
+          final long gid = entry.getLongGroupId();
+          final int mode = entry.getMode();
+          final String name = entry.getName();
+          final long size = entry.getSize();
+          final String target = entry.getLinkName();
+
+          this.jailUnpackFile(
+            base,
+            stream_tar,
+            uid,
+            gid,
+            mode,
+            name,
+            size,
+            target,
+            FileKind.HARD_LINK);
         }
       }
     }
@@ -508,7 +544,8 @@ public final class JailBuild implements JailBuildType
   {
     FILE,
     DIRECTORY,
-    SYMBOLIC_LINK
+    SYMBOLIC_LINK,
+    HARD_LINK
   }
 
   private void jailUnpackFile(
@@ -518,53 +555,112 @@ public final class JailBuild implements JailBuildType
     final long gid,
     final int mode,
     final String name,
+    final long expect_size,
     final @Nullable String target,
     final FileKind kind)
     throws IOException
   {
     final Path path = base.resolve(name).toAbsolutePath();
 
-    if (LOG.isDebugEnabled()) {
-      LOG.debug(
-        "unpack {} {} → {} (uid {} gid {} mode {})",
-        kind,
-        name,
-        path,
-        Long.valueOf(uid),
-        Long.valueOf(gid),
-        Integer.toOctalString(mode));
-    }
 
     switch (kind) {
       case FILE: {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+            "file {} (uid {} gid {} mode {} size {})",
+            path,
+            Long.valueOf(uid),
+            Long.valueOf(gid),
+            Integer.valueOf(mode),
+            Long.valueOf(expect_size));
+        }
+
         Files.createDirectories(path.getParent());
         Files.copy(stream, path);
+
+        final long result_size = Files.size(path);
+        if (result_size != expect_size) {
+          final StringBuilder sb = new StringBuilder(128);
+          sb.append("Failed to write file.");
+          sb.append(System.lineSeparator());
+          sb.append("  Expected size:  ");
+          sb.append(expect_size);
+          sb.append(System.lineSeparator());
+          sb.append("  Resulting size: ");
+          sb.append(result_size);
+          sb.append(System.lineSeparator());
+          throw new IOException(sb.toString());
+        }
         break;
       }
+      
       case DIRECTORY: {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+            "directory {} (uid {} gid {} mode {})",
+            path,
+            Long.valueOf(uid),
+            Long.valueOf(gid),
+            Integer.valueOf(mode));
+        }
+
         Files.createDirectories(path);
         break;
       }
+
       case SYMBOLIC_LINK: {
-        final Path resolve = path.resolve(target);
-        LOG.debug("link target: {}", resolve);
+        final Path target_resolved = path.resolve(target);
+
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+            "symbolic-link {} → {} (uid {} gid {} mode {})",
+            path,
+            target_resolved,
+            Long.valueOf(uid),
+            Long.valueOf(gid),
+            Integer.valueOf(mode));
+        }
+
         Files.createDirectories(path.getParent());
-        Files.createSymbolicLink(path, resolve);
+        Files.createSymbolicLink(path, target_resolved);
         break;
       }
+
+      case HARD_LINK:
+        final Path target_resolved = base.resolve(target);
+
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+            "hard-link {} → {} (uid {} gid {} mode {})",
+            path,
+            target_resolved,
+            Long.valueOf(uid),
+            Long.valueOf(gid),
+            Integer.valueOf(mode));
+        }
+
+        Files.createDirectories(path.getParent());
+        Files.createLink(path, target_resolved);
+        break;
     }
 
     final String path_s = path.toString();
     switch (kind) {
       case FILE:
+      case HARD_LINK:
       case DIRECTORY: {
         this.chown((int) uid, (int) gid, path_s);
         this.chmod(mode, path_s);
         break;
       }
       case SYMBOLIC_LINK: {
-        this.chownLink((int) uid, (int) gid, path_s);
-        this.chmodLink(mode, path_s);
+        /*
+         * XXX: The link should have its owner and mode set here.
+         * Unfortunately, lchmod() and friends are not available outside of BSD
+         * and the POSIX bindings don't appear to provide any way to check
+         * for support. Do nothing until this is resolved!
+         */
+
         break;
       }
     }
