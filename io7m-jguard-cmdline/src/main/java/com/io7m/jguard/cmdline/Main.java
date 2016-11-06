@@ -24,6 +24,7 @@ import com.io7m.jfunctional.Unit;
 import com.io7m.jguard.core.JailConfiguration;
 import com.io7m.jguard.core.JailConfigurationError;
 import com.io7m.jguard.core.JailConfigurations;
+import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadOctetsPerSecond;
 import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
@@ -34,6 +35,7 @@ import com.io7m.jguard.jailcontrol.fbsd_native.JailControlFBSDNative;
 import com.io7m.jnull.NullCheck;
 import javaslang.collection.List;
 import javaslang.control.Validation;
+import jnr.posix.POSIXFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -78,18 +80,29 @@ public final class Main implements Runnable
   {
     this.args = NullCheck.notNull(in_args);
 
-    final CommandRoot r = new CommandRoot();
-    final CommandStart start = new CommandStart();
-    final CommandDownloadBinaryArchive download = new CommandDownloadBinaryArchive();
+    final CommandRoot r =
+      new CommandRoot();
+    final CommandStart start =
+      new CommandStart();
+    final CommandDownloadBinaryArchive download =
+      new CommandDownloadBinaryArchive();
+    final CommandCreateJailBase create_base =
+      new CommandCreateJailBase();
+    final CommandVersion version =
+      new CommandVersion();
 
     this.commands = new HashMap<>(8);
     this.commands.put("start", start);
     this.commands.put("download-base-archive", download);
+    this.commands.put("create-jail-base", create_base);
+    this.commands.put("version", version);
 
     this.commander = new JCommander(r);
     this.commander.setProgramName("jguard");
     this.commander.addCommand("start", start);
     this.commander.addCommand("download-base-archive", download);
+    this.commander.addCommand("create-jail-base", create_base);
+    this.commander.addCommand("version", version);
   }
 
   /**
@@ -173,6 +186,110 @@ public final class Main implements Runnable
     }
   }
 
+  @Parameters(commandDescription = "Retrieve the program version")
+  private final class CommandVersion extends CommandRoot
+  {
+    CommandVersion()
+    {
+
+    }
+
+    @Override
+    public Unit call()
+      throws Exception
+    {
+      super.call();
+
+      final Package p = this.getClass().getPackage();
+      System.out.printf(
+        "%s %s %s\n",
+        p.getImplementationVendor(),
+        p.getImplementationTitle(),
+        p.getImplementationVersion());
+
+      return unit();
+    }
+  }
+
+  @Parameters(commandDescription = "Create a base jail and template from an archive")
+  private final class CommandCreateJailBase extends CommandRoot
+  {
+    @Parameter(
+      names = "-base",
+      required = true,
+      description = "The created base directory")
+    private String base;
+
+    @Parameter(
+      names = "-base-template",
+      required = true,
+      description = "The created base template directory")
+    private String base_template;
+
+    @Parameter(
+      names = "-archive",
+      required = true,
+      description = "Select a specific archive file")
+    private String archive_file;
+
+    @Parameter(
+      names = "-archive-format",
+      description = "Explicitly specify the archive format")
+    private JailArchiveFormat archive_format;
+
+    CommandCreateJailBase()
+    {
+
+    }
+
+    @Override
+    public Unit call()
+      throws Exception
+    {
+      super.call();
+
+      final Path jail_base_archive =
+        Paths.get(this.archive_file).toAbsolutePath();
+      final Path jail_base =
+        Paths.get(this.base).toAbsolutePath();
+      final Path jail_base_template =
+        Paths.get(this.base_template).toAbsolutePath();
+
+      LOG.debug("archive:        {}", jail_base_archive);
+      LOG.debug("base:           {}", jail_base);
+      LOG.debug("base-template:  {}", jail_base_template);
+
+      final ExecutorService pool =
+        Executors.newSingleThreadExecutor();
+      final JailBuildType jb =
+        JailBuild.get(JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+
+      try {
+        if (this.archive_format == null) {
+          final Optional<JailArchiveFormat> format_opt =
+            JailArchiveFormat.inferFrom(jail_base_archive);
+          if (format_opt.isPresent()) {
+            this.archive_format = format_opt.get();
+          }
+        }
+
+        LOG.debug("archive-format: {}", this.archive_format);
+
+        jb.jailCreateBase(
+          jail_base_archive,
+          this.archive_format,
+          jail_base,
+          jail_base_template);
+
+        return unit();
+      } finally {
+        LOG.debug("stopping thread pool");
+        pool.shutdown();
+        pool.awaitTermination(10L, TimeUnit.SECONDS);
+      }
+    }
+  }
+
   @Parameters(commandDescription = "Download a binary archive for creating a jail")
   private final class CommandDownloadBinaryArchive extends CommandRoot
   {
@@ -225,7 +342,8 @@ public final class Main implements Runnable
       LOG.debug("release: {}", archive_release);
 
       final ExecutorService pool = Executors.newSingleThreadExecutor();
-      final JailBuildType jb = JailBuild.get(JailBuild.clients(), pool);
+      final JailBuildType jb =
+        JailBuild.get(JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
 
       final Path out_file = Paths.get(this.file);
       final Path out_file_tmp = Paths.get(this.file + ".tmp");
@@ -254,7 +372,7 @@ public final class Main implements Runnable
               Integer.valueOf(attempt),
               Integer.valueOf(this.retry_max));
 
-            final CompletableFuture<Path> f = jb.jailDownloadBinaryArchive(
+            final CompletableFuture<Void> f = jb.jailDownloadBinaryArchive(
               out_file_tmp,
               this.base_uri,
               archive_arch,
@@ -291,7 +409,7 @@ public final class Main implements Runnable
           }
         }
       } finally {
-        LOG.debug("stopping download thread");
+        LOG.debug("stopping thread pool");
         pool.shutdown();
         pool.awaitTermination(10L, TimeUnit.SECONDS);
       }

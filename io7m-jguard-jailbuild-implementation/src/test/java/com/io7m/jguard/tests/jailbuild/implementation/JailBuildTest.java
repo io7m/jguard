@@ -16,13 +16,19 @@
 
 package com.io7m.jguard.tests.jailbuild.implementation;
 
+import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadOctetsPerSecond;
 import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
 import com.io7m.jguard.jailbuild.implementation.JailBuild;
+import javaslang.collection.List;
+import jnr.posix.POSIX;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.StrictExpectations;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.ProtocolVersion;
@@ -44,19 +50,28 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -65,6 +80,7 @@ public final class JailBuildTest
 {
   private static final JailDownloadProgressType PROGRESS;
   private static final URI BASE_URI;
+  private static final Logger LOG;
 
   static {
     BASE_URI =
@@ -75,6 +91,8 @@ public final class JailBuildTest
         (total_expected, total_received, octets_per_second) -> {
         },
         Clock.systemUTC());
+
+    LOG = LoggerFactory.getLogger(JailBuildTest.class);
   }
 
   @Rule public ExpectedException expected = ExpectedException.none();
@@ -100,7 +118,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadSyncBadURI()
+  public void testDownloadSyncBadURI()
     throws Exception
   {
     final CloseableHttpClient mock_http_client =
@@ -108,8 +126,13 @@ public final class JailBuildTest
       {
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -127,7 +150,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadSyncHead404()
+  public void testDownloadSyncHead404()
     throws Exception
   {
     final URI expected_uri =
@@ -157,8 +180,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -183,7 +211,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadSyncHeadGibberish0()
+  public void testDownloadSyncHeadGibberish0()
     throws Exception
   {
     final URI expected_uri =
@@ -219,8 +247,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -245,7 +278,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadSyncHeadGibberish1()
+  public void testDownloadSyncHeadGibberish1()
     throws Exception
   {
     final URI expected_uri =
@@ -283,8 +316,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -345,7 +383,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGet404()
+  public void testDownloadGet404()
     throws Exception
   {
     final URI expected_uri =
@@ -404,8 +442,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -430,7 +473,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGetBadContentLength()
+  public void testDownloadGetBadContentLength()
     throws Exception
   {
     final URI expected_uri =
@@ -489,8 +532,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -514,7 +562,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGetShortData()
+  public void testDownloadGetShortData()
     throws Exception
   {
     final URI expected_uri =
@@ -582,8 +630,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -607,7 +660,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGetAllCorrect()
+  public void testDownloadGetAllCorrect()
     throws Exception
   {
     final MockUp<CloseableHttpResponse> mock_head_response =
@@ -676,8 +729,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     new StrictExpectations()
     {{
@@ -700,7 +758,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGetResume()
+  public void testDownloadGetResume()
     throws Exception
   {
     final Random random = new Random();
@@ -778,8 +836,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     new StrictExpectations()
     {{
@@ -800,7 +863,7 @@ public final class JailBuildTest
   }
 
   @Test
-  public <T extends CloseableHttpResponse> void testDownloadGetGotAlready()
+  public void testDownloadGetGotAlready()
     throws Exception
   {
     final Random random = new Random();
@@ -860,8 +923,13 @@ public final class JailBuildTest
         }
       }.getMockInstance();
 
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+      }.getMockInstance();
+
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
 
     new StrictExpectations()
     {{
@@ -881,5 +949,1000 @@ public final class JailBuildTest
     Assert.assertEquals(32L, Files.size(file));
     final byte[] received_data = Files.readAllBytes(file);
     Assert.assertArrayEquals(data, received_data);
+  }
+
+  @Test
+  public void testUnpackArchiveOK()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+        @Mock
+        int errno()
+        {
+          return 0;
+        }
+
+        @Mock
+        int chown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          LOG.debug(
+            "chown: {} {} {}",
+            name,
+            Integer.valueOf(uid),
+            Integer.valueOf(gid));
+          return 0;
+        }
+
+        @Mock
+        int lchown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          LOG.debug(
+            "lchown: {} {} {}",
+            name,
+            Integer.valueOf(uid),
+            Integer.valueOf(gid));
+          return 0;
+        }
+
+        @Mock
+        int chmod(
+          final String name,
+          final int mode)
+        {
+          LOG.debug(
+            "chmod: {} {}",
+            name,
+            Integer.valueOf(mode));
+
+          final String ps;
+          final Path actual = path.resolve(name);
+          if (mode == 0755) {
+            ps = "rwxr-xr-x";
+          } else if (mode == 0644) {
+            ps = "rw-r--r--";
+          } else {
+            ps = "---------";
+          }
+
+          try {
+            Files.setPosixFilePermissions(
+              actual, PosixFilePermissions.fromString(ps));
+          } catch (final IOException e) {
+            LOG.error("failed to set file permissions: ", e);
+            return -1;
+          }
+
+          return 0;
+        }
+
+        @Mock
+        int lchmod(
+          final String name,
+          final int mode)
+        {
+          LOG.debug(
+            "lchmod: {} {}",
+            name,
+            Integer.valueOf(mode));
+          return 0;
+        }
+
+      }.getMockInstance();
+
+    final MockUp<Files> mock_files =
+      new MockUp<Files>()
+      {
+        @Mock
+        public InputStream newInputStream(
+          final Path path,
+          final OpenOption... options)
+          throws IOException
+        {
+          LOG.debug("newInputStream: {}", path);
+          return new MockUp<InputStream>()
+          {
+
+          }.getMockInstance();
+        }
+      };
+
+    final MockUp<XZCompressorInputStream> mock_xz =
+      new MockUp<XZCompressorInputStream>()
+      {
+        public InputStream inner;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("XZCompressorInputStream: {}", stream);
+          this.inner = stream;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "XZCompressorInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+          return this.inner.read(buf, offset, r);
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("XZCompressorInputStream: close");
+        }
+      };
+
+    final MockUp<TarArchiveInputStream> mock_tar =
+      new MockUp<TarArchiveInputStream>()
+      {
+        private int entry_index;
+        private int read_count;
+        private List<TarArchiveEntry> entries;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("TarArchiveInputStream: {}", stream);
+
+          final TarArchiveEntry entry_file = new TarArchiveEntry("file");
+          entry_file.setGroupId(100);
+          entry_file.setUserId(100);
+          entry_file.setMode(0644);
+          entry_file.setSize(4);
+
+          final TarArchiveEntry entry_dir = new TarArchiveEntry("directory/");
+          entry_dir.setGroupId(100);
+          entry_dir.setUserId(100);
+          entry_dir.setMode(0755);
+
+          final TarArchiveEntry entry_link = new TarArchiveEntry("link") {
+            @Override
+            public boolean isFile()
+            {
+              return false;
+            }
+
+            @Override
+            public String getLinkName()
+            {
+              return "/target";
+            }
+
+            @Override
+            public boolean isSymbolicLink()
+            {
+              return true;
+            }
+          };
+          entry_link.setGroupId(100);
+          entry_link.setUserId(100);
+          entry_link.setMode(0777);
+          entry_link.setSize(4);
+
+          this.entries = List.of(entry_file, entry_dir, entry_link);
+        }
+
+        @Mock
+        public TarArchiveEntry getNextTarEntry()
+          throws IOException
+        {
+          if (this.entry_index < this.entries.size()) {
+            final TarArchiveEntry entry = this.entries.get(this.entry_index);
+            ++this.entry_index;
+            return entry;
+          }
+          return null;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "TarArchiveInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+
+          try {
+            if (this.read_count == 0) {
+              Assert.assertTrue(buf.length >= 4);
+              buf[0] = (byte) 0x0;
+              buf[1] = (byte) 0x1;
+              buf[2] = (byte) 0x2;
+              buf[3] = (byte) 0x3;
+              return 4;
+            }
+
+            return 0;
+          } finally {
+            ++this.read_count;
+          }
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("TarArchiveInputStream: close");
+        }
+      };
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    build.jailUnpackArchive(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path);
+
+    Assert.assertTrue(Files.isDirectory(path));
+    Assert.assertTrue(Files.isRegularFile(path.resolve("file")));
+    Assert.assertTrue(Files.isDirectory(path.resolve("directory")));
+    Assert.assertTrue(Files.isSymbolicLink(path.resolve("link")));
+
+    {
+      final byte[] data = Files.readAllBytes(path.resolve("file"));
+      Assert.assertArrayEquals(
+        new byte[]{
+          (byte) 0x0,
+          (byte) 0x1,
+          (byte) 0x2,
+          (byte) 0x3
+        }, data);
+
+      final Set<PosixFilePermission> perms =
+        Files.getPosixFilePermissions(path.resolve("file"));
+      Assert.assertEquals("rw-r--r--", PosixFilePermissions.toString(perms));
+    }
+
+    {
+      final Set<PosixFilePermission> perms =
+        Files.getPosixFilePermissions(path.resolve("directory"));
+      Assert.assertEquals("rwxr-xr-x", PosixFilePermissions.toString(perms));
+    }
+
+    {
+      Assert.assertEquals("/target", Files.readSymbolicLink(path.resolve("link")).toString());
+    }
+  }
+
+  @Test
+  public void testUnpackArchiveChmodFailed()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+        @Mock
+        int errno()
+        {
+          return 5;
+        }
+
+        @Mock
+        int chown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          LOG.debug(
+            "chown: {} {} {}",
+            name,
+            Integer.valueOf(uid),
+            Integer.valueOf(gid));
+          return 0;
+        }
+
+        @Mock
+        int chmod(
+          final String name,
+          final int mode)
+        {
+          return -1;
+        }
+
+      }.getMockInstance();
+
+    final MockUp<Files> mock_files =
+      new MockUp<Files>()
+      {
+        @Mock
+        public InputStream newInputStream(
+          final Path path,
+          final OpenOption... options)
+          throws IOException
+        {
+          LOG.debug("newInputStream: {}", path);
+          return new MockUp<InputStream>()
+          {
+
+          }.getMockInstance();
+        }
+      };
+
+    final MockUp<XZCompressorInputStream> mock_xz =
+      new MockUp<XZCompressorInputStream>()
+      {
+        public InputStream inner;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("XZCompressorInputStream: {}", stream);
+          this.inner = stream;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "XZCompressorInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+          return this.inner.read(buf, offset, r);
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("XZCompressorInputStream: close");
+        }
+      };
+
+    final MockUp<TarArchiveInputStream> mock_tar =
+      new MockUp<TarArchiveInputStream>()
+      {
+        private int entry_index;
+        private int read_count;
+        private List<TarArchiveEntry> entries;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("TarArchiveInputStream: {}", stream);
+
+          final TarArchiveEntry entry_file = new TarArchiveEntry("file");
+          entry_file.setGroupId(100);
+          entry_file.setUserId(100);
+          entry_file.setMode(0644);
+          entry_file.setSize(4);
+
+          this.entries = List.of(entry_file);
+        }
+
+        @Mock
+        public TarArchiveEntry getNextTarEntry()
+          throws IOException
+        {
+          if (this.entry_index < this.entries.size()) {
+            final TarArchiveEntry entry = this.entries.get(this.entry_index);
+            ++this.entry_index;
+            return entry;
+          }
+          return null;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "TarArchiveInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+
+          try {
+            if (this.read_count == 0) {
+              Assert.assertTrue(buf.length >= 4);
+              buf[0] = (byte) 0x0;
+              buf[1] = (byte) 0x1;
+              buf[2] = (byte) 0x2;
+              buf[3] = (byte) 0x3;
+              return 4;
+            }
+
+            return 0;
+          } finally {
+            ++this.read_count;
+          }
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("TarArchiveInputStream: close");
+        }
+      };
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    this.expected.expect(IOException.class);
+    this.expected.expectMessage(new StringStartsWith("Could not set mode"));
+
+    build.jailUnpackArchive(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path);
+  }
+
+  @Test
+  public void testUnpackArchiveChownFailed()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+        @Mock
+        int errno()
+        {
+          return 5;
+        }
+
+        @Mock
+        int chown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          return -1;
+        }
+
+        @Mock
+        int chmod(
+          final String name,
+          final int mode)
+        {
+          LOG.debug(
+            "chmod: {} {}",
+            name,
+            Integer.valueOf(mode));
+
+          final String ps;
+          final Path actual = path.resolve(name);
+          if (mode == 0755) {
+            ps = "rwxr-xr-x";
+          } else if (mode == 0644) {
+            ps = "rw-r--r--";
+          } else {
+            ps = "---------";
+          }
+
+          try {
+            Files.setPosixFilePermissions(
+              actual, PosixFilePermissions.fromString(ps));
+          } catch (final IOException e) {
+            return -1;
+          }
+
+          return 0;
+        }
+
+      }.getMockInstance();
+
+    final MockUp<Files> mock_files =
+      new MockUp<Files>()
+      {
+        @Mock
+        public InputStream newInputStream(
+          final Path path,
+          final OpenOption... options)
+          throws IOException
+        {
+          LOG.debug("newInputStream: {}", path);
+          return new MockUp<InputStream>()
+          {
+
+          }.getMockInstance();
+        }
+      };
+
+    final MockUp<XZCompressorInputStream> mock_xz =
+      new MockUp<XZCompressorInputStream>()
+      {
+        public InputStream inner;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("XZCompressorInputStream: {}", stream);
+          this.inner = stream;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "XZCompressorInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+          return this.inner.read(buf, offset, r);
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("XZCompressorInputStream: close");
+        }
+      };
+
+    final MockUp<TarArchiveInputStream> mock_tar =
+      new MockUp<TarArchiveInputStream>()
+      {
+        private int entry_index;
+        private int read_count;
+        private List<TarArchiveEntry> entries;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("TarArchiveInputStream: {}", stream);
+
+          final TarArchiveEntry entry_file = new TarArchiveEntry("file");
+          entry_file.setGroupId(100);
+          entry_file.setUserId(100);
+          entry_file.setMode(0644);
+          entry_file.setSize(4);
+
+          this.entries = List.of(entry_file);
+        }
+
+        @Mock
+        public TarArchiveEntry getNextTarEntry()
+          throws IOException
+        {
+          if (this.entry_index < this.entries.size()) {
+            final TarArchiveEntry entry = this.entries.get(this.entry_index);
+            ++this.entry_index;
+            return entry;
+          }
+          return null;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "TarArchiveInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+
+          try {
+            if (this.read_count == 0) {
+              Assert.assertTrue(buf.length >= 4);
+              buf[0] = (byte) 0x0;
+              buf[1] = (byte) 0x1;
+              buf[2] = (byte) 0x2;
+              buf[3] = (byte) 0x3;
+              return 4;
+            }
+
+            return 0;
+          } finally {
+            ++this.read_count;
+          }
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("TarArchiveInputStream: close");
+        }
+      };
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    this.expected.expect(IOException.class);
+    this.expected.expectMessage(new StringStartsWith("Could not set owner"));
+
+    build.jailUnpackArchive(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path);
+  }
+
+  @Test
+  public void testCreateBaseOK()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+        @Mock
+        int errno()
+        {
+          return 0;
+        }
+
+        @Mock
+        int chown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          LOG.debug(
+            "chown: {} {} {}",
+            name,
+            Integer.valueOf(uid),
+            Integer.valueOf(gid));
+          return 0;
+        }
+
+        @Mock
+        int lchown(
+          final String name,
+          final int uid,
+          final int gid)
+        {
+          LOG.debug(
+            "lchown: {} {} {}",
+            name,
+            Integer.valueOf(uid),
+            Integer.valueOf(gid));
+          return 0;
+        }
+
+        @Mock
+        int chmod(
+          final String name,
+          final int mode)
+        {
+          LOG.debug(
+            "chmod: {} {}",
+            name,
+            Integer.valueOf(mode));
+
+          final String ps;
+          final Path actual = path.resolve(name);
+          if (mode == 0755) {
+            ps = "rwxr-xr-x";
+          } else if (mode == 0644) {
+            ps = "rw-r--r--";
+          } else {
+            ps = "---------";
+          }
+
+          try {
+            Files.setPosixFilePermissions(
+              actual, PosixFilePermissions.fromString(ps));
+          } catch (final IOException e) {
+            LOG.error("failed to set file permissions: ", e);
+            return -1;
+          }
+
+          return 0;
+        }
+
+        @Mock
+        int lchmod(
+          final String name,
+          final int mode)
+        {
+          LOG.debug(
+            "lchmod: {} {}",
+            name,
+            Integer.valueOf(mode));
+          return 0;
+        }
+
+      }.getMockInstance();
+
+    final MockUp<Files> mock_files =
+      new MockUp<Files>()
+      {
+        @Mock
+        public InputStream newInputStream(
+          final Path path,
+          final OpenOption... options)
+          throws IOException
+        {
+          LOG.debug("newInputStream: {}", path);
+          return new MockUp<InputStream>()
+          {
+
+          }.getMockInstance();
+        }
+      };
+
+    final MockUp<XZCompressorInputStream> mock_xz =
+      new MockUp<XZCompressorInputStream>()
+      {
+        public InputStream inner;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("XZCompressorInputStream: {}", stream);
+          this.inner = stream;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "XZCompressorInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+          return this.inner.read(buf, offset, r);
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("XZCompressorInputStream: close");
+        }
+      };
+
+    final MockUp<TarArchiveInputStream> mock_tar =
+      new MockUp<TarArchiveInputStream>()
+      {
+        private int entry_index;
+        private int read_count;
+        private List<TarArchiveEntry> entries;
+
+        @Mock
+        void $init(
+          final InputStream stream)
+        {
+          LOG.debug("TarArchiveInputStream: {}", stream);
+
+          final TarArchiveEntry entry_etc = new TarArchiveEntry("etc/");
+          entry_etc.setGroupId(0);
+          entry_etc.setUserId(0);
+          entry_etc.setMode(0755);
+
+          final TarArchiveEntry entry_var = new TarArchiveEntry("var/");
+          entry_var.setGroupId(0);
+          entry_var.setUserId(0);
+          entry_var.setMode(0755);
+
+          this.entries = List.of(entry_etc, entry_var);
+        }
+
+        @Mock
+        public TarArchiveEntry getNextTarEntry()
+          throws IOException
+        {
+          if (this.entry_index < this.entries.size()) {
+            final TarArchiveEntry entry = this.entries.get(this.entry_index);
+            ++this.entry_index;
+            return entry;
+          }
+          return null;
+        }
+
+        @Mock
+        public int read(
+          final byte[] buf,
+          final int offset,
+          final int r)
+          throws IOException
+        {
+          LOG.debug(
+            "TarArchiveInputStream: read {} {} {}",
+            buf,
+            Integer.valueOf(offset),
+            Integer.valueOf(r));
+
+          try {
+            if (this.read_count == 0) {
+              Assert.assertTrue(buf.length >= 4);
+              buf[0] = (byte) 0x0;
+              buf[1] = (byte) 0x1;
+              buf[2] = (byte) 0x2;
+              buf[3] = (byte) 0x3;
+              return 4;
+            }
+
+            return 0;
+          } finally {
+            ++this.read_count;
+          }
+        }
+
+        @Mock
+        void close()
+        {
+          LOG.debug("TarArchiveInputStream: close");
+        }
+      };
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    build.jailCreateBase(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path,
+      path_template);
+
+    Assert.assertTrue(Files.isDirectory(path));
+    Assert.assertTrue(Files.isDirectory(path_template));
+    Assert.assertTrue(Files.isDirectory(path_template.resolve("etc")));
+    Assert.assertTrue(Files.isDirectory(path_template.resolve("var")));
+
+    Files.walk(path_template).forEach(
+      p -> {
+        try {
+          LOG.debug("path: {}", p);
+          if (Files.isSymbolicLink(p)) {
+            LOG.debug("path: is symlink {} → {}", p, Files.readSymbolicLink(p));
+          }
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      });
+
+    for (final String link : JailBuild.JAIL_TEMPLATE_LINKS) {
+      final Path link_path = path_template.resolve(link);
+      final Path link_target = path.resolve(link);
+      LOG.debug("check: {} -> {}", link_path, link_target);
+
+      Assert.assertTrue(Files.isSymbolicLink(link_path));
+      Assert.assertEquals(link_target, Files.readSymbolicLink(link_path));
+    }
+  }
+
+  @Test
+  public void testCreateBaseExists()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path);
+
+    this.expected.expect(FileAlreadyExistsException.class);
+    build.jailCreateBase(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path,
+      path_template);
+  }
+
+  @Test
+  public void testCreateBaseTemplateExists()
+    throws Exception
+  {
+    final Path archive_file =
+      this.filesystem.getPath("/base.txz");
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path_template);
+
+    this.expected.expect(FileAlreadyExistsException.class);
+    build.jailCreateBase(
+      archive_file,
+      JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
+      path,
+      path_template);
   }
 }

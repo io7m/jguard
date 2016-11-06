@@ -18,6 +18,7 @@ package com.io7m.jguard.jailbuild.api;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -43,7 +44,7 @@ public interface JailBuildType
    * @return A future representing the download in progress
    */
 
-  CompletableFuture<Path> jailDownloadBinaryArchive(
+  CompletableFuture<Void> jailDownloadBinaryArchive(
     Path file,
     URI base,
     String arch,
@@ -63,17 +64,45 @@ public interface JailBuildType
    * @param archive_file The archive file (such as {@code base.txz})
    * @param progress     An optional consumer of download progress information
    *
-   * @return The path to the downloaded file when the download is completed
-   *
    * @throws IOException On any error
    */
 
-  Path jailDownloadBinaryArchiveSync(
+  void jailDownloadBinaryArchiveSync(
     Path file,
     URI base,
     String arch,
     String release,
     String archive_file,
     Optional<JailDownloadProgressType> progress)
+    throws IOException;
+
+  /**
+   * <p>Unpack {@code base_archive} into {@code base} and then create the base
+   * template directory {@code base_template}.</p>
+   *
+   * <p>The directories {@code base} and {@code base_template} must not
+   * exist.</p>
+   *
+   * @param base_archive  The base archive (such as {@code base.txz})
+   * @param format        The archive format
+   * @param base          The base directory
+   * @param base_template The base template for new jails
+   *
+   * @throws FileAlreadyExistsException If {@code base} or {@code base_template}
+   *                                    already exist
+   * @throws IOException                On any error
+   */
+
+  void jailCreateBase(
+    Path base_archive,
+    JailArchiveFormat format,
+    Path base,
+    Path base_template)
+    throws IOException;
+
+  void jailUnpackArchive(
+    Path base_archive,
+    JailArchiveFormat format,
+    Path base)
     throws IOException;
 }

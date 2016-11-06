@@ -16,9 +16,17 @@
 
 package com.io7m.jguard.jailbuild.implementation;
 
+import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
 import com.io7m.jnull.NullCheck;
+import com.io7m.jnull.Nullable;
+import javaslang.collection.List;
+import jnr.ffi.LibraryLoader;
+import jnr.posix.POSIX;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.apache.commons.compress.compressors.xz.XZCompressorInputStream;
 import org.apache.http.Header;
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
@@ -32,14 +40,19 @@ import org.apache.http.impl.client.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -62,17 +75,64 @@ public final class JailBuild implements JailBuildType
 
   private final ExecutorService pool;
   private final Supplier<CloseableHttpClient> clients;
+  private final StrErrorType strerror;
+  private final POSIX posix;
+
+  /**
+   * The symlinks created for jail templates.
+   */
+
+  public static final List<String> JAIL_TEMPLATE_LINKS =
+    List.of(
+      "bin",
+      "boot",
+      "lib",
+      "libexec",
+      "rescue",
+      "sbin",
+      "usr/bin",
+      "usr/include",
+      "usr/lib",
+      "usr/libdata",
+      "usr/libexec",
+      "usr/sbin",
+      "usr/share",
+      "usr/src",
+      "usr/lib32",
+      "usr/games",
+      "usr/ports",
+      "sys");
 
   private JailBuild(
     final Supplier<CloseableHttpClient> in_clients,
+    final POSIX in_posix,
+    final StrErrorType in_strerror,
     final ExecutorService in_pool)
   {
     this.pool = NullCheck.notNull(in_pool, "Pool");
-    this.clients = NullCheck.notNull(in_clients, "in_clients");
+    this.clients = NullCheck.notNull(in_clients, "Clients");
+    this.strerror = NullCheck.notNull(in_strerror, "Strerror");
+    this.posix = NullCheck.notNull(in_posix, "POSIX");
+  }
+
+  /**
+   * Interface to the standard library's {@code strerror} function.
+   */
+
+  public interface StrErrorType
+  {
+    /**
+     * @param e The errno value
+     *
+     * @return An error message for the given errno value
+     */
+
+    String strerror(int e);
   }
 
   /**
    * @param in_clients An HTTP client supplier
+   * @param in_posix   A POSIX interface
    * @param in_pool    An executor service pool
    *
    * @return A jail builder API
@@ -80,13 +140,23 @@ public final class JailBuild implements JailBuildType
 
   public static JailBuildType get(
     final Supplier<CloseableHttpClient> in_clients,
+    final POSIX in_posix,
     final ExecutorService in_pool)
   {
-    return new JailBuild(in_clients, in_pool);
+    LOG.debug("creating libc loader");
+    final LibraryLoader<StrErrorType> c_loader =
+      LibraryLoader.create(StrErrorType.class);
+    c_loader.failImmediately();
+
+    LOG.debug("loading libc library");
+    final StrErrorType strerror = c_loader.load("c");
+    LOG.debug("loaded libc library: {}", strerror);
+
+    return new JailBuild(in_clients, in_posix, strerror, in_pool);
   }
 
   @Override
-  public CompletableFuture<Path> jailDownloadBinaryArchive(
+  public CompletableFuture<Void> jailDownloadBinaryArchive(
     final Path file,
     final URI base,
     final String arch,
@@ -100,13 +170,14 @@ public final class JailBuild implements JailBuildType
     NullCheck.notNull(release, "Release");
     NullCheck.notNull(progress, "Progress");
 
-    final CompletableFuture<Path> future = new CompletableFuture<>();
+    final CompletableFuture<Void> future = new CompletableFuture<>();
     final BooleanSupplier is_cancelled = future::isCancelled;
 
     this.pool.submit(() -> {
       try {
-        future.complete(this.download(
-          is_cancelled, file, base, arch, release, archive_file, progress));
+        this.download(
+          is_cancelled, file, base, arch, release, archive_file, progress);
+        future.complete(null);
       } catch (final Throwable e) {
         future.completeExceptionally(e);
       }
@@ -116,7 +187,7 @@ public final class JailBuild implements JailBuildType
   }
 
   @Override
-  public Path jailDownloadBinaryArchiveSync(
+  public void jailDownloadBinaryArchiveSync(
     final Path file,
     final URI base,
     final String arch,
@@ -131,8 +202,279 @@ public final class JailBuild implements JailBuildType
     NullCheck.notNull(release, "Release");
     NullCheck.notNull(progress, "Progress");
 
-    return this.download(
+    this.download(
       () -> false, file, base, arch, release, archive_file, progress);
+  }
+
+  @Override
+  public void jailCreateBase(
+    final Path base_archive,
+    final JailArchiveFormat format,
+    final Path base,
+    final Path base_template)
+    throws IOException
+  {
+    NullCheck.notNull(base_archive, "Base archive");
+    NullCheck.notNull(format, "Format");
+    NullCheck.notNull(base, "Base");
+    NullCheck.notNull(base_template, "Base template");
+
+    if (Files.exists(base)) {
+      throw new FileAlreadyExistsException(base.toString());
+    }
+    if (Files.exists(base_template)) {
+      throw new FileAlreadyExistsException(base_template.toString());
+    }
+
+    this.jailUnpackArchive(base_archive, format, base);
+    this.jailCreateBaseTemplate(base, base_template);
+  }
+
+  private void jailCreateBaseTemplate(
+    final Path base,
+    final Path base_template)
+    throws IOException
+  {
+    this.jailCreateBaseTemplateDirectories(base_template);
+    this.jailCreateBaseTemplateMoveMutableParts(base, base_template);
+    this.jailCreateBaseTemplateSymlinks(base, base_template);
+  }
+
+  private void jailCreateBaseTemplateSymlinks(
+    final Path base,
+    final Path base_template)
+    throws IOException
+  {
+    final FileSystem base_fs = base.getFileSystem();
+    for (final String name : JAIL_TEMPLATE_LINKS) {
+      final Path link_target =
+        base_fs.getPath("/", base.getFileName().toString(), name);
+      final Path link_name = base_template.resolve(name);
+      LOG.debug("symlink {} → {}", link_name, link_target);
+      Files.createSymbolicLink(link_name, link_target);
+    }
+  }
+
+  private void jailCreateBaseTemplateMoveMutableParts(
+    final Path base,
+    final Path base_template)
+    throws IOException
+  {
+    final List<String> directories =
+      List.of("etc", "var");
+
+    for (final String directory : directories) {
+      final Path source = base.resolve(directory);
+      final Path target = base_template.resolve(directory);
+      LOG.debug("move {} → {}", source, target);
+      Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+    }
+  }
+
+  private void jailCreateBaseTemplateDirectories(final Path base_template)
+    throws IOException
+  {
+    final List<String> directories = List.of("dev", "proc", "tmp", "usr");
+    for (final String directory : directories) {
+      final Path target = base_template.resolve(directory);
+      LOG.debug("create {}", target);
+      Files.createDirectories(target);
+    }
+  }
+
+  @Override
+  public void jailUnpackArchive(
+    final Path base_archive,
+    final JailArchiveFormat format,
+    final Path base)
+    throws IOException
+  {
+    NullCheck.notNull(base_archive, "Base archive");
+    NullCheck.notNull(format, "Format");
+    NullCheck.notNull(base, "Base");
+
+    LOG.debug("unpack {} ({}) -> {}", base_archive, format, base);
+
+    try (final BufferedInputStream stream =
+           new BufferedInputStream(Files.newInputStream(base_archive))) {
+      switch (format) {
+        case JAIL_ARCHIVE_FORMAT_TAR_XZ: {
+          this.jailUnpackArchiveTarXZ(base_archive, stream, base);
+          return;
+        }
+      }
+    }
+  }
+
+  private void check(
+    final String function,
+    final String name,
+    final String message,
+    final int code,
+    final int errno)
+    throws IOException
+  {
+    if (code == -1) {
+      final StringBuilder sb = new StringBuilder(128);
+      sb.append(message);
+      sb.append(System.lineSeparator());
+      sb.append("  Function:   ");
+      sb.append(function);
+      sb.append(System.lineSeparator());
+      sb.append("  Name:       ");
+      sb.append(name);
+      sb.append(System.lineSeparator());
+      sb.append("  Error code: ");
+      sb.append(code);
+      sb.append(System.lineSeparator());
+      sb.append("  Message:    ");
+      sb.append(this.strerror.strerror(errno));
+      sb.append(System.lineSeparator());
+      throw new IOException(sb.toString());
+    }
+  }
+
+  private void jailUnpackArchiveTarXZ(
+    final Path base_archive,
+    final BufferedInputStream stream,
+    final Path base)
+    throws IOException
+  {
+    try (final XZCompressorInputStream stream_xz =
+           new XZCompressorInputStream(stream)) {
+
+      try (final TarArchiveInputStream stream_tar =
+             new TarArchiveInputStream(stream_xz)) {
+
+        while (true) {
+          final TarArchiveEntry entry = stream_tar.getNextTarEntry();
+          if (entry == null) {
+            return;
+          }
+
+          final long uid = entry.getLongUserId();
+          final long gid = entry.getLongGroupId();
+          final int mode = entry.getMode();
+          final String name = entry.getName();
+
+          if (!entry.isCheckSumOK()) {
+            LOG.warn("incorrect checksum for {}", name);
+          }
+
+          String target = null;
+          FileKind kind = null;
+          if (entry.isFile()) {
+            kind = FileKind.FILE;
+          } else if (entry.isDirectory()) {
+            kind = FileKind.DIRECTORY;
+          } else if (entry.isSymbolicLink()) {
+            target = entry.getLinkName();
+            kind = FileKind.SYMBOLIC_LINK;
+          }
+
+          this.jailUnpackFile(
+            base,
+            stream_tar,
+            uid,
+            gid,
+            mode,
+            name,
+            target,
+            NullCheck.notNull(kind, "File kind"));
+        }
+      }
+    }
+  }
+
+  private enum FileKind
+  {
+    FILE,
+    DIRECTORY,
+    SYMBOLIC_LINK
+  }
+
+  private void jailUnpackFile(
+    final Path base,
+    final InputStream stream,
+    final long uid,
+    final long gid,
+    final int mode,
+    final String name,
+    final @Nullable String target,
+    final FileKind kind)
+    throws IOException
+  {
+    final Path path = base.resolve(name).toAbsolutePath();
+
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(
+        "unpack {} {} → {} (uid {} gid {} mode {})",
+        kind,
+        name,
+        path,
+        Long.valueOf(uid),
+        Long.valueOf(gid),
+        Integer.toOctalString(mode));
+    }
+
+    switch (kind) {
+      case FILE: {
+        Files.createDirectories(path.getParent());
+        Files.copy(stream, path);
+        break;
+      }
+      case DIRECTORY: {
+        Files.createDirectories(path);
+        break;
+      }
+      case SYMBOLIC_LINK: {
+        final Path resolve = path.resolve(target);
+        LOG.debug("link target: {}", resolve);
+        Files.createDirectories(path.getParent());
+        Files.createSymbolicLink(path, resolve);
+        break;
+      }
+    }
+
+    final String path_s = path.toString();
+
+    switch (kind) {
+      case FILE:
+      case DIRECTORY: {
+        {
+          final int r = this.posix.chown(
+            path_s,
+            (int) uid,
+            (int) gid);
+          final int errno = this.posix.errno();
+          this.check("chown", path_s, "Could not set owner", r, errno);
+        }
+
+        {
+          final int r = this.posix.chmod(path_s, mode);
+          final int errno = this.posix.errno();
+          this.check("chmod", path_s, "Could not set mode", r, errno);
+        }
+        break;
+      }
+      case SYMBOLIC_LINK: {
+        {
+          final int r = this.posix.lchown(
+            path_s,
+            (int) uid,
+            (int) gid);
+          final int errno = this.posix.errno();
+          this.check("lchown", path_s, "Could not set link owner", r, errno);
+        }
+
+        {
+          final int r = this.posix.lchmod(path_s, mode);
+          final int errno = this.posix.errno();
+          this.check("lchmod", path_s, "Could not set link mode", r, errno);
+        }
+        break;
+      }
+    }
   }
 
   private Path download(

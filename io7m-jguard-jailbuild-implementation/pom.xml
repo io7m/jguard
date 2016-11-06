@@ -52,6 +52,18 @@
       <artifactId>httpclient-osgi</artifactId>
       <type>bundle</type>
     </dependency>
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-compress</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.tukaani</groupId>
+      <artifactId>xz</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.jnr</groupId>
+      <artifactId>jnr-posix</artifactId>
+    </dependency>
 
     <!-- Note that jmockit MUST appear BEFORE junit here -->
     <!-- This is a major design flaw that is corrected in JUnit 5 -->
