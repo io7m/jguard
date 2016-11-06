@@ -238,7 +238,8 @@ public final class JailBuild implements JailBuildType
   private void jailCreateBaseTemplateDirectories(final Path base_template)
     throws IOException
   {
-    final List<String> directories = List.of("dev", "proc", "tmp", "usr");
+    final List<String> directories =
+      List.of("base", "dev", "proc", "tmp", "usr");
     for (final String directory : directories) {
       final Path target = base_template.resolve(directory);
       LOG.debug("create {}", target);
