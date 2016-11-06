@@ -24,7 +24,6 @@ import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * An API for building jails.
@@ -32,29 +31,6 @@ import java.util.concurrent.CompletableFuture;
 
 public interface JailBuildType
 {
-  /**
-   * Download a binary archive from a FreeBSD mirror. The download is performed
-   * asynchronously and may be controlled by the returned future.
-   *
-   * @param file         The output file
-   * @param base         The base URI
-   * @param arch         The architecture of the release (such as {@code
-   *                     amd64})
-   * @param release      The release (such as {@code 10.3-RELEASE}).
-   * @param archive_file The archive file (such as {@code base.txz})
-   * @param progress     An optional consumer of download progress information
-   *
-   * @return A future representing the download in progress
-   */
-
-  CompletableFuture<Void> jailDownloadBinaryArchive(
-    Path file,
-    URI base,
-    String arch,
-    String release,
-    String archive_file,
-    Optional<JailDownloadProgressType> progress);
-
   /**
    * Download a binary archive from a FreeBSD mirror. The download is performed
    * synchronously on the calling thread.
@@ -70,7 +46,7 @@ public interface JailBuildType
    * @throws IOException On any error
    */
 
-  void jailDownloadBinaryArchiveSync(
+  void jailDownloadBinaryArchive(
     Path file,
     URI base,
     String arch,

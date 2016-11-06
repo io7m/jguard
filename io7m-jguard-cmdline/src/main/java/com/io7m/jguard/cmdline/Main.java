@@ -56,10 +56,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static com.io7m.jfunctional.Unit.unit;
@@ -288,12 +284,9 @@ public final class Main implements Runnable
       LOG.debug("base:          {}", jail_base);
       LOG.debug("base-template: {}", jail_base_template);
 
-      final ExecutorService pool =
-        Executors.newSingleThreadExecutor();
-
       try {
         final JailBuildType jb = JailBuild.get(
-          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+          JailBuild.clients(), POSIXFactory.getNativePOSIX());
 
         List<Inet4Address> ipv4_list = List.empty();
         if (this.ipv4 != null) {
@@ -338,10 +331,6 @@ public final class Main implements Runnable
         LOG.error("parameter error: {}", e.getMessage());
         Main.this.exit_code = 1;
         return unit();
-      } finally {
-        LOG.debug("stopping thread pool");
-        pool.shutdown();
-        pool.awaitTermination(10L, TimeUnit.SECONDS);
       }
     }
   }
@@ -394,35 +383,26 @@ public final class Main implements Runnable
       LOG.debug("base:           {}", jail_base);
       LOG.debug("base-template:  {}", jail_base_template);
 
-      final ExecutorService pool =
-        Executors.newSingleThreadExecutor();
+      final JailBuildType jb = JailBuild.get(
+        JailBuild.clients(), POSIXFactory.getNativePOSIX());
 
-      try {
-        final JailBuildType jb = JailBuild.get(
-          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
-
-        if (this.archive_format == null) {
-          final Optional<JailArchiveFormat> format_opt =
-            JailArchiveFormat.inferFrom(jail_base_archive);
-          if (format_opt.isPresent()) {
-            this.archive_format = format_opt.get();
-          }
+      if (this.archive_format == null) {
+        final Optional<JailArchiveFormat> format_opt =
+          JailArchiveFormat.inferFrom(jail_base_archive);
+        if (format_opt.isPresent()) {
+          this.archive_format = format_opt.get();
         }
-
-        LOG.debug("archive-format: {}", this.archive_format);
-
-        jb.jailCreateBase(
-          jail_base_archive,
-          this.archive_format,
-          jail_base,
-          jail_base_template);
-
-        return unit();
-      } finally {
-        LOG.debug("stopping thread pool");
-        pool.shutdown();
-        pool.awaitTermination(10L, TimeUnit.SECONDS);
       }
+
+      LOG.debug("archive-format: {}", this.archive_format);
+
+      jb.jailCreateBase(
+        jail_base_archive,
+        this.archive_format,
+        jail_base,
+        jail_base_template);
+
+      return unit();
     }
   }
 
@@ -480,75 +460,64 @@ public final class Main implements Runnable
       final Path out_file = Paths.get(this.file);
       final Path out_file_tmp = Paths.get(this.file + ".tmp");
 
-      final ExecutorService pool = Executors.newSingleThreadExecutor();
+      final JailBuildType jb = JailBuild.get(
+        JailBuild.clients(), POSIXFactory.getNativePOSIX());
 
-      try {
-        final JailBuildType jb = JailBuild.get(
-          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+      int attempt = 0;
 
-        int attempt = 0;
+      while (true) {
+        try {
+          ++attempt;
 
-        while (true) {
-          try {
-            ++attempt;
+          final JailDownloadProgressType progress =
+            JailDownloadOctetsPerSecond.get(
+              (total_expected, total_received, octets_per_second) ->
+                LOG.info(
+                  "download ({}) {} / {} bytes ({} MiB/s)",
+                  CommandDownloadBinaryArchive.this.archive_file,
+                  Long.valueOf(total_received),
+                  Long.valueOf(total_expected),
+                  Double.valueOf((double) octets_per_second / 1000_000.0)),
+              Clock.systemUTC());
 
-            final JailDownloadProgressType progress =
-              JailDownloadOctetsPerSecond.get(
-                (total_expected, total_received, octets_per_second) ->
-                  LOG.info(
-                    "download ({}) {} / {} bytes ({} MiB/s)",
-                    CommandDownloadBinaryArchive.this.archive_file,
-                    Long.valueOf(total_received),
-                    Long.valueOf(total_expected),
-                    Double.valueOf((double) octets_per_second / 1000_000.0)),
-                Clock.systemUTC());
+          LOG.info(
+            "downloading {} - attempt {} of {}",
+            this.archive_file,
+            Integer.valueOf(attempt),
+            Integer.valueOf(this.retry_max));
 
-            LOG.info(
-              "downloading {} - attempt {} of {}",
-              this.archive_file,
-              Integer.valueOf(attempt),
-              Integer.valueOf(this.retry_max));
+          jb.jailDownloadBinaryArchive(
+            out_file_tmp,
+            this.base_uri,
+            archive_arch,
+            archive_release,
+            this.archive_file,
+            Optional.of(progress));
 
-            final CompletableFuture<Void> f = jb.jailDownloadBinaryArchive(
-              out_file_tmp,
-              this.base_uri,
-              archive_arch,
-              archive_release,
-              this.archive_file,
-              Optional.of(progress));
-            f.get();
+          LOG.info("download completed");
+          LOG.debug("rename: {} → {}", out_file_tmp, out_file);
+          Files.move(
+            out_file_tmp,
+            out_file,
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING);
 
-            LOG.info("download completed");
-            LOG.debug("rename: {} → {}", out_file_tmp, out_file);
-            Files.move(
-              out_file_tmp,
-              out_file,
-              StandardCopyOption.ATOMIC_MOVE,
-              StandardCopyOption.REPLACE_EXISTING);
+          return unit();
+        } catch (final Exception e) {
+          LOG.error("download failed: ", e.getCause());
 
+          final boolean retry =
+            this.retry_max <= 0 || attempt < this.retry_max;
+
+          if (retry) {
+            LOG.debug("waiting 3 seconds for retry");
+            TimeUnit.SECONDS.sleep(3L);
+          } else {
+            LOG.error("giving up after too many retries");
+            Main.this.exit_code = 1;
             return unit();
-          } catch (final InterruptedException e) {
-            Thread.currentThread().interrupt();
-          } catch (final ExecutionException e) {
-            LOG.error("download failed: ", e.getCause());
-
-            final boolean retry =
-              this.retry_max <= 0 || attempt < this.retry_max;
-
-            if (retry) {
-              LOG.debug("waiting 3 seconds for retry");
-              TimeUnit.SECONDS.sleep(3L);
-            } else {
-              LOG.error("giving up after too many retries");
-              Main.this.exit_code = 1;
-              return unit();
-            }
           }
         }
-      } finally {
-        LOG.debug("stopping thread pool");
-        pool.shutdown();
-        pool.awaitTermination(10L, TimeUnit.SECONDS);
       }
     }
 

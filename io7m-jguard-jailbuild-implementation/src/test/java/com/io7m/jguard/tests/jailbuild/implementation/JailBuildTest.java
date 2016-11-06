@@ -104,14 +104,12 @@ public final class JailBuildTest
 
   @Rule public ExpectedException expected = ExpectedException.none();
 
-  private ExecutorService pool;
   private FileSystem filesystem;
 
   @Before
   public void onSetup()
     throws Exception
   {
-    this.pool = Executors.newSingleThreadExecutor();
     this.filesystem = TestFilesystems.makeEmptyUnixFilesystem();
   }
 
@@ -119,8 +117,6 @@ public final class JailBuildTest
   public void onTearDown()
     throws Exception
   {
-    this.pool.shutdown();
-    this.pool.awaitTermination(5L, TimeUnit.SECONDS);
     this.filesystem.close();
   }
 
@@ -139,7 +135,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -147,7 +143,7 @@ public final class JailBuildTest
     this.expected.expect(IllegalArgumentException.class);
     this.expected.expectCause(Is.isA(URISyntaxException.class));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -193,7 +189,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -208,7 +204,7 @@ public final class JailBuildTest
       new StringStartsWith(
         "Server returned an error when checking the remote file size."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -260,7 +256,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -275,7 +271,7 @@ public final class JailBuildTest
       new StringStartsWith(
         "Server did not return a usable Content-Length when checking the remote file size."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -329,7 +325,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -344,7 +340,7 @@ public final class JailBuildTest
       new StringStartsWith(
         "Server did not return a usable Content-Length when checking the remote file size."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -455,7 +451,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -470,7 +466,7 @@ public final class JailBuildTest
       new StringStartsWith(
         "Server returned an error when attempting to retrieve the file."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -545,7 +541,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -559,7 +555,7 @@ public final class JailBuildTest
     this.expected.expectMessage(
       new StringStartsWith("Server failed to return a usable HTTP entity."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -643,7 +639,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     final Path file =
       this.filesystem.getPath("/base.txz");
@@ -657,7 +653,7 @@ public final class JailBuildTest
     this.expected.expectMessage(
       new StringStartsWith("Downloaded file was truncated."));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -742,7 +738,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     new StrictExpectations()
     {{
@@ -752,7 +748,7 @@ public final class JailBuildTest
     final Path file = this.filesystem.getPath("/base.txz");
     Assert.assertFalse(Files.exists(file));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -849,14 +845,14 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     new StrictExpectations()
     {{
       mock_http_client.close();
     }};
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -936,7 +932,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     new StrictExpectations()
     {{
@@ -945,7 +941,7 @@ public final class JailBuildTest
 
     Assert.assertEquals(32L, Files.size(file));
 
-    build.jailDownloadBinaryArchiveSync(
+    build.jailDownloadBinaryArchive(
       file,
       BASE_URI,
       "amd64",
@@ -1206,7 +1202,7 @@ public final class JailBuildTest
       };
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     build.jailUnpackArchive(
       archive_file,
@@ -1414,7 +1410,7 @@ public final class JailBuildTest
       };
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     this.expected.expect(IOException.class);
     this.expected.expectMessage(new StringStartsWith("Could not set mode"));
@@ -1612,7 +1608,7 @@ public final class JailBuildTest
       };
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     this.expected.expect(IOException.class);
     this.expected.expectMessage(new StringStartsWith("Could not set owner"));
@@ -1769,7 +1765,7 @@ public final class JailBuildTest
       };
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     build.jailCreateBase(
       archive_file,
@@ -1827,7 +1823,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path);
 
@@ -1862,7 +1858,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path_template);
 
@@ -1895,7 +1891,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path_template);
 
@@ -1932,7 +1928,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path);
 
@@ -1969,7 +1965,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path);
     Files.createDirectories(path_template);
@@ -2008,7 +2004,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path);
     Files.createDirectories(path_template);
@@ -2056,7 +2052,7 @@ public final class JailBuildTest
       )).getMockInstance();
 
     final JailBuildType build =
-      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+      JailBuild.get(() -> mock_http_client, mock_posix);
 
     Files.createDirectories(path);
     Files.createDirectories(path_template);

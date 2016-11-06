@@ -61,10 +61,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -79,7 +75,6 @@ public final class JailBuild implements JailBuildType
     LOG = LoggerFactory.getLogger(JailBuild.class);
   }
 
-  private final ExecutorService pool;
   private final Supplier<CloseableHttpClient> clients;
   private final StrErrorType strerror;
   private final POSIX posix;
@@ -112,10 +107,8 @@ public final class JailBuild implements JailBuildType
   private JailBuild(
     final Supplier<CloseableHttpClient> in_clients,
     final POSIX in_posix,
-    final StrErrorType in_strerror,
-    final ExecutorService in_pool)
+    final StrErrorType in_strerror)
   {
-    this.pool = NullCheck.notNull(in_pool, "Pool");
     this.clients = NullCheck.notNull(in_clients, "Clients");
     this.strerror = NullCheck.notNull(in_strerror, "Strerror");
     this.posix = NullCheck.notNull(in_posix, "POSIX");
@@ -139,15 +132,13 @@ public final class JailBuild implements JailBuildType
   /**
    * @param in_clients An HTTP client supplier
    * @param in_posix   A POSIX interface
-   * @param in_pool    An executor service pool
    *
    * @return A jail builder API
    */
 
   public static JailBuildType get(
     final Supplier<CloseableHttpClient> in_clients,
-    final POSIX in_posix,
-    final ExecutorService in_pool)
+    final POSIX in_posix)
   {
     LOG.debug("creating libc loader");
     final LibraryLoader<StrErrorType> c_loader =
@@ -158,42 +149,11 @@ public final class JailBuild implements JailBuildType
     final StrErrorType strerror = c_loader.load("c");
     LOG.debug("loaded libc library: {}", strerror);
 
-    return new JailBuild(in_clients, in_posix, strerror, in_pool);
+    return new JailBuild(in_clients, in_posix, strerror);
   }
 
   @Override
-  public CompletableFuture<Void> jailDownloadBinaryArchive(
-    final Path file,
-    final URI base,
-    final String arch,
-    final String release,
-    final String archive_file,
-    final Optional<JailDownloadProgressType> progress)
-  {
-    NullCheck.notNull(file, "File");
-    NullCheck.notNull(base, "Base");
-    NullCheck.notNull(arch, "Arch");
-    NullCheck.notNull(release, "Release");
-    NullCheck.notNull(progress, "Progress");
-
-    final CompletableFuture<Void> future = new CompletableFuture<>();
-    final BooleanSupplier is_cancelled = future::isCancelled;
-
-    this.pool.submit(() -> {
-      try {
-        this.download(
-          is_cancelled, file, base, arch, release, archive_file, progress);
-        future.complete(null);
-      } catch (final Throwable e) {
-        future.completeExceptionally(e);
-      }
-    });
-
-    return future;
-  }
-
-  @Override
-  public void jailDownloadBinaryArchiveSync(
+  public void jailDownloadBinaryArchive(
     final Path file,
     final URI base,
     final String arch,
@@ -207,9 +167,7 @@ public final class JailBuild implements JailBuildType
     NullCheck.notNull(arch, "Arch");
     NullCheck.notNull(release, "Release");
     NullCheck.notNull(progress, "Progress");
-
-    this.download(
-      () -> false, file, base, arch, release, archive_file, progress);
+    this.download(file, base, arch, release, archive_file, progress);
   }
 
   @Override
@@ -684,7 +642,6 @@ public final class JailBuild implements JailBuildType
   }
 
   private Path download(
-    final BooleanSupplier is_cancelled,
     final Path file,
     final URI base,
     final String arch,
@@ -714,7 +671,7 @@ public final class JailBuild implements JailBuildType
            NullCheck.notNull(this.clients.get(), "Client")) {
 
       final long bytes_total_expected =
-        downloadGetTotalExpectedBytes(is_cancelled, client, uri);
+        downloadGetTotalExpectedBytes(client, uri);
 
       final long bytes_starting;
       if (Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
@@ -736,13 +693,7 @@ public final class JailBuild implements JailBuildType
                StandardOpenOption.APPEND,
                StandardOpenOption.CREATE)) {
         downloadToFile(
-          is_cancelled,
-          client,
-          uri,
-          output,
-          bytes_starting,
-          bytes_total_expected,
-          progress);
+          client, uri, output, bytes_starting, bytes_total_expected, progress);
       }
     }
 
@@ -750,15 +701,10 @@ public final class JailBuild implements JailBuildType
   }
 
   private static long downloadGetTotalExpectedBytes(
-    final BooleanSupplier is_cancelled,
     final CloseableHttpClient client,
     final URI uri)
     throws IOException
   {
-    if (is_cancelled.getAsBoolean()) {
-      throw new CancellationException();
-    }
-
     LOG.debug("HEAD {}", uri);
 
     final HttpUriRequest request = new HttpHead(uri);
@@ -811,7 +757,6 @@ public final class JailBuild implements JailBuildType
   }
 
   private static void downloadToFile(
-    final BooleanSupplier is_cancelled,
     final CloseableHttpClient client,
     final URI uri,
     final OutputStream output,
@@ -820,10 +765,6 @@ public final class JailBuild implements JailBuildType
     final Optional<JailDownloadProgressType> progress)
     throws IOException
   {
-    if (is_cancelled.getAsBoolean()) {
-      throw new CancellationException();
-    }
-
     if (bytes_starting == bytes_total_expected) {
       LOG.debug("file already completely downloaded");
       return;
@@ -861,10 +802,6 @@ public final class JailBuild implements JailBuildType
         final byte[] buffer = new byte[4096];
         long bytes_now_received = 0L;
         while (true) {
-          if (is_cancelled.getAsBoolean()) {
-            throw new CancellationException();
-          }
-
           final int r = stream.read(buffer);
           if (r == -1) {
             break;
