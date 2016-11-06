@@ -294,7 +294,7 @@ public final class Main implements Runnable
   private final class CommandDownloadBinaryArchive extends CommandRoot
   {
     @Parameter(
-      names = "-file",
+      names = "-archive",
       required = true,
       description = "The output file")
     private String file;
@@ -310,7 +310,7 @@ public final class Main implements Runnable
     private String release;
 
     @Parameter(
-      names = "-archive",
+      names = "-fetch-archive",
       description = "Select a specific archive file")
     private String archive_file = "base.txz";
 
@@ -442,13 +442,13 @@ public final class Main implements Runnable
     }
   }
 
-  @Parameters(commandDescription = "Start a file")
+  @Parameters(commandDescription = "Start a jail")
   private final class CommandStart extends CommandRoot
   {
     @Parameter(
       names = "-file",
       required = true,
-      description = "The file configuration file")
+      description = "The jail configuration file")
     private String file;
 
     @Override

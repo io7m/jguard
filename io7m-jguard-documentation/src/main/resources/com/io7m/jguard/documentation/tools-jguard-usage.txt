@@ -1,0 +1,66 @@
+Usage: jguard [options] [command] [command options]
+  Options:
+    -verbose
+      Set the minimum logging verbosity level
+      Default: info
+      Possible Values: [trace, debug, info, warn, error]
+  Commands:
+    start      Start a jail
+      Usage: start [options]
+        Options:
+        * -file
+            The jail configuration file
+          -verbose
+            Set the minimum logging verbosity level
+            Default: info
+            Possible Values: [trace, debug, info, warn, error]
+
+    download-base-archive      Download a binary archive for creating a jail
+      Usage: download-base-archive [options]
+        Options:
+          -arch
+            Override the system architecture
+        * -archive
+            The output file
+          -base-uri
+            Override the base URI
+            Default: http://ftp.freebsd.org/pub/FreeBSD/releases/
+          -fetch-archive
+            Select a specific archive file
+            Default: base.txz
+          -release
+            Override the system release
+          -retry
+            Set the number of retries for failed downloads (0 is unlimited)
+            Default: 10
+          -verbose
+            Set the minimum logging verbosity level
+            Default: info
+            Possible Values: [trace, debug, info, warn, error]
+
+    create-jail-base      Create a base jail and template from an archive
+      Usage: create-jail-base [options]
+        Options:
+        * -archive
+            Select a specific archive file
+          -archive-format
+            Explicitly specify the archive format
+            Possible Values: [JAIL_ARCHIVE_FORMAT_TAR_XZ]
+        * -base
+            The created base directory
+        * -base-template
+            The created base template directory
+          -verbose
+            Set the minimum logging verbosity level
+            Default: info
+            Possible Values: [trace, debug, info, warn, error]
+
+    version      Retrieve the program version
+      Usage: version [options]
+        Options:
+          -verbose
+            Set the minimum logging verbosity level
+            Default: info
+            Possible Values: [trace, debug, info, warn, error]
+
+
