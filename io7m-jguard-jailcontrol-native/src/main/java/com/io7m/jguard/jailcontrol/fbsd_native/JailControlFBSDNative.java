@@ -224,6 +224,10 @@ public final class JailControlFBSDNative implements JailControlType
       r = this.libjail.jailparam_set(params, index + 1, flags);
       this.checkConfig("jailparam_set", r, this.posix.errno());
 
+      LOG.trace("chdir /");
+      r = this.posix.chdir("/");
+      this.checkConfig("chdir", r, this.posix.errno());
+
       {
         final List<String> cmd = configuration.startCommand();
         final String[] args = new String[cmd.length() + 1];

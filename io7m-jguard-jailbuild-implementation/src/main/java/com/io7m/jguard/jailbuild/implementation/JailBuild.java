@@ -593,7 +593,7 @@ public final class JailBuild implements JailBuildType
         }
         break;
       }
-      
+
       case DIRECTORY: {
         if (LOG.isDebugEnabled()) {
           LOG.debug(
