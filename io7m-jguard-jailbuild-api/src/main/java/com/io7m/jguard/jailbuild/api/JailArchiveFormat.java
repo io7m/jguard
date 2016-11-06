@@ -23,8 +23,16 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.Optional;
 
+/**
+ * The known archive formats.
+ */
+
 public enum JailArchiveFormat
 {
+  /**
+   * A tar file compressed with XZ.
+   */
+
   JAIL_ARCHIVE_FORMAT_TAR_XZ("txz");
 
   private static final Logger LOG;
@@ -34,6 +42,10 @@ public enum JailArchiveFormat
   }
 
   private final String name;
+
+  /**
+   * @return The format name (typically used as a file suffix)
+   */
 
   public String getName()
   {
@@ -45,6 +57,14 @@ public enum JailArchiveFormat
   {
     this.name = NullCheck.notNull(in_name, "Name");
   }
+
+  /**
+   * Try to infer the archive format from the given filename.
+   *
+   * @param path The file
+   *
+   * @return An inferred format, if any
+   */
 
   public static Optional<JailArchiveFormat> inferFrom(
     final Path path)

@@ -98,7 +98,17 @@ public interface JailBuildType
     JailArchiveFormat format,
     Path base,
     Path base_template)
-    throws IOException;
+    throws IOException, FileAlreadyExistsException;
+
+  /**
+   * Unpack the given archive.
+   *
+   * @param base_archive The archive
+   * @param format       The archive format
+   * @param base         The base directory
+   *
+   * @throws IOException On errors
+   */
 
   void jailUnpackArchive(
     Path base_archive,
