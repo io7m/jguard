@@ -48,7 +48,11 @@ The command supports the use of HTTP proxies via the standard Java
 properties:
 
 [paragraph]
-[verbatim [type terminal] "# java -jar jguard.jar -Dhttp.proxyHost=proxy.example.com -Dhttp.proxyPort=3128 download-base-archive -archive /usr/jail/base.txz"]
+[verbatim [type terminal] "# java -jar jguard.jar
+  -Dhttp.proxyHost=proxy.example.com
+  -Dhttp.proxyPort=3128
+  download-base-archive
+  -archive /usr/jail/base.txz"]
 
 [paragraph]
 Note that as of the time of writing, [link-ext [target "https://ftp.freebsd.org"] ftp.freebsd.org]
@@ -70,4 +74,23 @@ and [term [type file] base-template] directories that are shared between
 jail instances.
 
 [paragraph]
-[verbatim [type terminal] "# java -jar jguard.jar create-jail-base -archive /usr/jail/base.txz -base /usr/jail/base -base-template /usr/jail/base-template"]
+[verbatim [type terminal] "# java -jar jguard.jar
+  create-jail-base
+  -archive /usr/jail/base.txz
+  -base /usr/jail/base
+  -base-template /usr/jail/base-template"]
+
+[subsection [title create-jail] [id tools.jguard.create_jail]]
+[paragraph]
+The [term [type command] create-jail] subcommand creates a new jail.
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar
+  create-jail
+  -base /usr/jail/base
+  -base-template /usr/jail/base-template
+  -hostname jail0.example.com
+  -name jail0_example_com
+  -root /usr/jail/jail0.example.com
+  -start-command \"/usr/local/bin/s6-svscan /service\"
+  -ipv4 10.8.0.23"]

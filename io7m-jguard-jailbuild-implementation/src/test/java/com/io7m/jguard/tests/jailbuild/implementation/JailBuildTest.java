@@ -16,12 +16,17 @@
 
 package com.io7m.jguard.tests.jailbuild.implementation;
 
+import com.io7m.jguard.core.JailConfiguration;
+import com.io7m.jguard.core.JailName;
 import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadOctetsPerSecond;
 import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
 import com.io7m.jguard.jailbuild.implementation.JailBuild;
+import javaslang.collection.HashMap;
 import javaslang.collection.List;
+import javaslang.collection.Map;
+import jnr.posix.FileStat;
 import jnr.posix.POSIX;
 import mockit.Mock;
 import mockit.MockUp;
@@ -58,11 +63,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
+import java.net.Inet4Address;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
@@ -1633,86 +1640,7 @@ public final class JailBuildTest
       }.getMockInstance();
 
     final POSIX mock_posix =
-      new MockUp<POSIX>()
-      {
-        @Mock
-        int errno()
-        {
-          return 0;
-        }
-
-        @Mock
-        int chown(
-          final String name,
-          final int uid,
-          final int gid)
-        {
-          LOG.debug(
-            "chown: {} {} {}",
-            name,
-            Integer.valueOf(uid),
-            Integer.valueOf(gid));
-          return 0;
-        }
-
-        @Mock
-        int lchown(
-          final String name,
-          final int uid,
-          final int gid)
-        {
-          LOG.debug(
-            "lchown: {} {} {}",
-            name,
-            Integer.valueOf(uid),
-            Integer.valueOf(gid));
-          return 0;
-        }
-
-        @Mock
-        int chmod(
-          final String name,
-          final int mode)
-        {
-          LOG.debug(
-            "chmod: {} {}",
-            name,
-            Integer.valueOf(mode));
-
-          final String ps;
-          final Path actual = path.resolve(name);
-          if (mode == 0755) {
-            ps = "rwxr-xr-x";
-          } else if (mode == 0644) {
-            ps = "rw-r--r--";
-          } else {
-            ps = "---------";
-          }
-
-          try {
-            Files.setPosixFilePermissions(
-              actual, PosixFilePermissions.fromString(ps));
-          } catch (final IOException e) {
-            LOG.error("failed to set file permissions: ", e);
-            return -1;
-          }
-
-          return 0;
-        }
-
-        @Mock
-        int lchmod(
-          final String name,
-          final int mode)
-        {
-          LOG.debug(
-            "lchmod: {} {}",
-            name,
-            Integer.valueOf(mode));
-          return 0;
-        }
-
-      }.getMockInstance();
+      new MockPOSIXOps(path, HashMap.empty()).getMockInstance();
 
     final MockUp<Files> mock_files =
       new MockUp<Files>()
@@ -1944,5 +1872,333 @@ public final class JailBuildTest
       JailArchiveFormat.JAIL_ARCHIVE_FORMAT_TAR_XZ,
       path,
       path_template);
+  }
+
+  @Test
+  public void testCreateJailNonexistentBase()
+    throws Exception
+  {
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path_template);
+
+    final JailConfiguration config = JailConfiguration.of(
+      this.filesystem.getPath("/jail0"),
+      JailName.of("jail0"),
+      List.of((Inet4Address) Inet4Address.getByName("10.8.0.23")),
+      List.empty(),
+      "jail0.example.com",
+      List.of("/bin/sh"));
+
+    this.expected.expect(NotDirectoryException.class);
+    build.jailCreate(path, path_template, config);
+  }
+
+  @Test
+  public void testCreateJailNonexistentBaseTemplate()
+    throws Exception
+  {
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path);
+
+    final JailConfiguration config = JailConfiguration.of(
+      this.filesystem.getPath("/jail0"),
+      JailName.of("jail0"),
+      List.of((Inet4Address) Inet4Address.getByName("10.8.0.23")),
+      List.empty(),
+      "jail0.example.com",
+      List.of("/bin/sh"));
+
+    this.expected.expect(NotDirectoryException.class);
+    build.jailCreate(path, path_template, config);
+  }
+
+  @Test
+  public void testCreateJailConfigAlreadyExists()
+    throws Exception
+  {
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path);
+    Files.createDirectories(path_template);
+    Files.write(this.filesystem.getPath("/jail0.conf"), new byte[] { });
+
+    final JailConfiguration config = JailConfiguration.of(
+      this.filesystem.getPath("/jail0"),
+      JailName.of("jail0"),
+      List.of((Inet4Address) Inet4Address.getByName("10.8.0.23")),
+      List.empty(),
+      "jail0.example.com",
+      List.of("/bin/sh"));
+
+    this.expected.expect(FileAlreadyExistsException.class);
+    build.jailCreate(path, path_template, config);
+  }
+
+  @Test
+  public void testCreateJailFSTabAlreadyExists()
+    throws Exception
+  {
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final POSIX mock_posix =
+      new MockUp<POSIX>()
+      {
+
+      }.getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path);
+    Files.createDirectories(path_template);
+    Files.write(this.filesystem.getPath("/jail0.fstab"), new byte[] { });
+
+    final JailConfiguration config = JailConfiguration.of(
+      this.filesystem.getPath("/jail0"),
+      JailName.of("jail0"),
+      List.of((Inet4Address) Inet4Address.getByName("10.8.0.23")),
+      List.empty(),
+      "jail0.example.com",
+      List.of("/bin/sh"));
+
+    this.expected.expect(FileAlreadyExistsException.class);
+    build.jailCreate(path, path_template, config);
+  }
+
+  @Test
+  public void testCreateJailOK()
+    throws Exception
+  {
+    final Path path =
+      this.filesystem.getPath("/base");
+    final Path path_template =
+      this.filesystem.getPath("/base-template");
+
+    final CloseableHttpClient mock_http_client =
+      new MockUp<CloseableHttpClient>()
+      {
+      }.getMockInstance();
+
+    final MockUp<FileStat> mock_stats =
+      new MockUp<FileStat>()
+    {
+
+    };
+
+    final POSIX mock_posix =
+      new MockPOSIXOps(path, HashMap.of(
+        "/base-template", mock_stats.getMockInstance(),
+        "/base-template/file", mock_stats.getMockInstance(),
+        "/base-template/link", mock_stats.getMockInstance(),
+        "/base-template/dir", mock_stats.getMockInstance(),
+        "/base-template/base", mock_stats.getMockInstance()
+      )).getMockInstance();
+
+    final JailBuildType build =
+      JailBuild.get(() -> mock_http_client, mock_posix, this.pool);
+
+    Files.createDirectories(path);
+    Files.createDirectories(path_template);
+    Files.createFile(path_template.resolve("file"));
+    Files.createDirectories(path_template.resolve("dir"));
+    Files.createDirectories(path_template.resolve("base"));
+    Files.createSymbolicLink(
+      path_template.resolve("link"),
+      this.filesystem.getPath("/file"));
+
+    final JailConfiguration config = JailConfiguration.of(
+      this.filesystem.getPath("/jail0"),
+      JailName.of("jail0"),
+      List.of((Inet4Address) Inet4Address.getByName("10.8.0.23")),
+      List.empty(),
+      "jail0.example.com",
+      List.of("/bin/sh"));
+
+    build.jailCreate(path, path_template, config);
+
+    Assert.assertTrue(
+      Files.isDirectory(this.filesystem.getPath("/jail0")));
+    Assert.assertTrue(
+      Files.isDirectory(this.filesystem.getPath("/jail0/dir")));
+    Assert.assertTrue(
+      Files.isDirectory(this.filesystem.getPath("/jail0/base")));
+    Assert.assertTrue(
+      Files.isRegularFile(this.filesystem.getPath("/jail0/file")));
+    Assert.assertTrue(
+      Files.isSymbolicLink(this.filesystem.getPath("/jail0/link")));
+    Assert.assertEquals(
+      this.filesystem.getPath("/file"),
+      Files.readSymbolicLink(this.filesystem.getPath("/jail0/link")));
+    Assert.assertTrue(
+      Files.isRegularFile(this.filesystem.getPath("/jail0.conf")));
+    Assert.assertTrue(
+      Files.isRegularFile(this.filesystem.getPath("/jail0.fstab")));
+  }
+
+  private static class MockPOSIXOps extends MockUp<POSIX>
+  {
+    private final Path path;
+    private final Map<String, FileStat> stats;
+
+    public MockPOSIXOps(
+      final Path in_path,
+      final Map<String, FileStat> in_stats)
+    {
+      this.path = in_path;
+      this.stats = in_stats;
+    }
+
+    @Mock
+    int errno()
+    {
+      return 0;
+    }
+
+    @Mock
+    public FileStat lstat(
+      final String name)
+    {
+      return this.stats.get(name).getOrElse((FileStat) null);
+    }
+
+    @Mock
+    public FileStat stat(
+      final String name)
+    {
+      return this.stats.get(name).getOrElse((FileStat) null);
+    }
+
+    @Mock
+    int chown(
+      final String name,
+      final int uid,
+      final int gid)
+    {
+      LOG.debug(
+        "chown: {} {} {}",
+        name,
+        Integer.valueOf(uid),
+        Integer.valueOf(gid));
+      return 0;
+    }
+
+    @Mock
+    int lchown(
+      final String name,
+      final int uid,
+      final int gid)
+    {
+      LOG.debug(
+        "lchown: {} {} {}",
+        name,
+        Integer.valueOf(uid),
+        Integer.valueOf(gid));
+      return 0;
+    }
+
+    @Mock
+    int chmod(
+      final String name,
+      final int mode)
+    {
+      LOG.debug(
+        "chmod: {} {}",
+        name,
+        Integer.valueOf(mode));
+
+      final String ps;
+      final Path actual = this.path.resolve(name);
+      if (mode == 0755) {
+        ps = "rwxr-xr-x";
+      } else if (mode == 0644) {
+        ps = "rw-r--r--";
+      } else {
+        ps = "---------";
+      }
+
+      try {
+        Files.setPosixFilePermissions(
+          actual, PosixFilePermissions.fromString(ps));
+      } catch (final IOException e) {
+        LOG.error("failed to set file permissions: ", e);
+        return -1;
+      }
+
+      return 0;
+    }
+
+    @Mock
+    int lchmod(
+      final String name,
+      final int mode)
+    {
+      LOG.debug(
+        "lchmod: {} {}",
+        name,
+        Integer.valueOf(mode));
+      return 0;
+    }
+
   }
 }

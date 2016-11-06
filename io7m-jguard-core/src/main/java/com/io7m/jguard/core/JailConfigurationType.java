@@ -22,6 +22,8 @@ import org.immutables.value.Value;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.nio.file.Path;
+import java.util.Properties;
+import java.util.stream.Collectors;
 
 /**
  * The type of jail configurations.
@@ -72,4 +74,57 @@ public interface JailConfigurationType
 
   @Value.Parameter(order = 5)
   List<String> startCommand();
+
+  /**
+   * Check preconditions for the type.
+   */
+
+  @Value.Check
+  default void checkPreconditions()
+  {
+    if (this.ipv4Addresses().isEmpty() && this.ipv6Addresses().isEmpty()) {
+      throw new IllegalArgumentException(
+        "Must specify at least one IPv4 address or at least one IPv6 address");
+    }
+  }
+
+  /**
+   * Serialize the current configuration to Java properties.
+   *
+   * @return The serialized configuration
+   */
+
+  default Properties toProperties()
+  {
+    final Properties p = new Properties();
+    p.setProperty("path", this.path().toString());
+    p.setProperty("name", this.name().value());
+    p.setProperty("hostname", this.hostname());
+
+    p.setProperty(
+      "start_command",
+      this.startCommand()
+        .toJavaStream()
+        .collect(Collectors.joining(" ")));
+
+    if (!this.ipv4Addresses().isEmpty()) {
+      p.setProperty(
+        "ipv4",
+        this.ipv4Addresses()
+          .toJavaStream()
+          .map(Inet4Address::getHostAddress)
+          .collect(Collectors.joining(" ")));
+    }
+
+    if (!this.ipv6Addresses().isEmpty()) {
+      p.setProperty(
+        "ipv6",
+        this.ipv6Addresses()
+          .toJavaStream()
+          .map(Inet6Address::getHostAddress)
+          .collect(Collectors.joining(" ")));
+    }
+
+    return p;
+  }
 }

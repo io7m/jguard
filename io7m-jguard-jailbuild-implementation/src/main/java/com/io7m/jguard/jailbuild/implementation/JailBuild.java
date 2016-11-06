@@ -16,6 +16,8 @@
 
 package com.io7m.jguard.jailbuild.implementation;
 
+import com.io7m.jguard.core.JailConfiguration;
+import com.io7m.jguard.core.JailConfigurationType;
 import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadProgressType;
@@ -23,6 +25,7 @@ import com.io7m.jnull.NullCheck;
 import com.io7m.jnull.Nullable;
 import javaslang.collection.List;
 import jnr.ffi.LibraryLoader;
+import jnr.posix.FileStat;
 import jnr.posix.POSIX;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -44,12 +47,16 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.OutputStreamWriter;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -305,6 +312,159 @@ public final class JailBuild implements JailBuildType
     }
   }
 
+  @Override
+  public void jailCreate(
+    final Path base,
+    final Path base_template,
+    final JailConfiguration config)
+    throws IOException
+  {
+    NullCheck.notNull(config, "Config");
+
+    if (!Files.exists(base)) {
+      throw new NotDirectoryException(base.toString());
+    }
+    if (!Files.exists(base_template)) {
+      throw new NotDirectoryException(base_template.toString());
+    }
+
+    final Path root = config.path();
+    final Path path_config =
+      root.getParent().resolve(config.name().value() + ".conf");
+    final Path path_config_tmp =
+      root.getParent().resolve(config.name().value() + ".conf.tmp");
+
+    final Path path_fstab =
+      root.getParent().resolve(config.name().value() + ".fstab");
+    final Path path_fstab_tmp =
+      root.getParent().resolve(config.name().value() + ".fstab.tmp");
+
+    LOG.debug("root:        {}", root);
+    LOG.debug("path_config: {}", path_config);
+    LOG.debug("path_fstab:  {}", path_fstab);
+
+    if (Files.exists(path_config)) {
+      throw new FileAlreadyExistsException(path_config.toString());
+    }
+    if (Files.exists(path_fstab)) {
+      throw new FileAlreadyExistsException(path_fstab.toString());
+    }
+
+    try {
+      this.jailCreateCopyTree(base_template, root);
+      this.jailCreateWriteConfig(path_config_tmp, config);
+      this.jailCreateWriteFSTab(base, path_fstab_tmp, config);
+
+      Files.move(path_fstab_tmp, path_fstab, StandardCopyOption.ATOMIC_MOVE);
+      Files.move(path_config_tmp, path_config, StandardCopyOption.ATOMIC_MOVE);
+    } catch (final IOException e) {
+      Files.deleteIfExists(path_fstab);
+      Files.deleteIfExists(path_fstab_tmp);
+      Files.deleteIfExists(path_config);
+      Files.deleteIfExists(path_config_tmp);
+      throw e;
+    }
+  }
+
+  private void jailCreateCopyTree(
+    final Path source,
+    final Path root)
+    throws IOException
+  {
+    try {
+      Files.walk(source).forEach(current_file -> {
+        try {
+          if (Files.isSymbolicLink(current_file)) {
+            final Path file_target = root.resolve(source.relativize(current_file));
+            final Path link_target = Files.readSymbolicLink(current_file);
+            LOG.debug(
+              "copy-link: {} {} (→ {})",
+              current_file,
+              file_target,
+              link_target);
+            Files.createSymbolicLink(file_target, link_target);
+
+            /*
+             * XXX: The link should have its owner and mode set here.
+             * Unfortunately, lchmod() and friends are not available outside of BSD
+             * and the POSIX bindings don't appear to provide any way to check
+             * for support. Do nothing until this is resolved!
+             */
+
+          } else if (Files.isRegularFile(current_file)) {
+            final Path file_target = root.resolve(source.relativize(current_file));
+            LOG.debug("copy-file: {} {}", current_file, file_target);
+            Files.copy(
+              current_file,
+              file_target,
+              StandardCopyOption.REPLACE_EXISTING);
+
+            final String file_s = current_file.toString();
+            final FileStat stat =
+              NullCheck.notNull(
+                this.posix.stat(file_s),
+                "this.posix.stat(file_s)");
+            this.chown(stat.uid(), stat.gid(), file_s);
+            this.chmod(stat.mode(), file_s);
+
+          } else if (Files.isDirectory(current_file)) {
+            final Path file_target = root.resolve(source.relativize(current_file));
+            LOG.debug("create-directory: {}", file_target);
+            Files.createDirectories(file_target);
+
+            final String file_s = current_file.toString();
+            final FileStat stat =
+              NullCheck.notNull(
+                this.posix.stat(file_s),
+                "this.posix.stat(file_s)");
+            this.chown(stat.uid(), stat.gid(), file_s);
+            this.chmod(stat.mode(), file_s);
+          }
+        } catch (final IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      });
+    } catch (final UncheckedIOException e) {
+      throw e.getCause();
+    }
+  }
+
+  private void jailCreateWriteConfig(
+    final Path path_config,
+    final JailConfigurationType config)
+    throws IOException
+  {
+    try (final OutputStream output = Files.newOutputStream(path_config)) {
+      try (final OutputStreamWriter writer =
+             new OutputStreamWriter(output, StandardCharsets.UTF_8)) {
+        config.toProperties().store(writer, "");
+      }
+    }
+  }
+
+  private void jailCreateWriteFSTab(
+    final Path base,
+    final Path path_fstab,
+    final JailConfiguration config)
+    throws IOException
+  {
+    final String fstab = this.jailCreateGenerateFSTab(base, config);
+    LOG.debug("fstab {}", fstab);
+    Files.write(path_fstab, fstab.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private String jailCreateGenerateFSTab(
+    final Path base,
+    final JailConfiguration config)
+  {
+    final StringBuilder sb = new StringBuilder(256);
+    sb.append(base);
+    sb.append(" ");
+    sb.append(config.path());
+    sb.append("/base nullfs ro 0 0");
+    return sb.toString();
+  }
+
   private void check(
     final String function,
     final String name,
@@ -436,44 +596,91 @@ public final class JailBuild implements JailBuildType
     }
 
     final String path_s = path.toString();
-
     switch (kind) {
       case FILE:
       case DIRECTORY: {
-        {
-          final int r = this.posix.chown(
-            path_s,
-            (int) uid,
-            (int) gid);
-          final int errno = this.posix.errno();
-          this.check("chown", path_s, "Could not set owner", r, errno);
-        }
-
-        {
-          final int r = this.posix.chmod(path_s, mode);
-          final int errno = this.posix.errno();
-          this.check("chmod", path_s, "Could not set mode", r, errno);
-        }
+        this.chown((int) uid, (int) gid, path_s);
+        this.chmod(mode, path_s);
         break;
       }
       case SYMBOLIC_LINK: {
-        {
-          final int r = this.posix.lchown(
-            path_s,
-            (int) uid,
-            (int) gid);
-          final int errno = this.posix.errno();
-          this.check("lchown", path_s, "Could not set link owner", r, errno);
-        }
-
-        {
-          final int r = this.posix.lchmod(path_s, mode);
-          final int errno = this.posix.errno();
-          this.check("lchmod", path_s, "Could not set link mode", r, errno);
-        }
+        this.chownLink((int) uid, (int) gid, path_s);
+        this.chmodLink(mode, path_s);
         break;
       }
     }
+  }
+
+  private void chmodLink(
+    final int mode,
+    final String path_s)
+    throws IOException
+  {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(
+        "lchmod {} (mode {})",
+        path_s,
+        Integer.toOctalString(mode));
+    }
+
+    final int r = this.posix.lchmod(path_s, mode);
+    final int errno = this.posix.errno();
+    this.check("lchmod", path_s, "Could not set link mode", r, errno);
+  }
+
+  private void chownLink(
+    final int uid,
+    final int gid,
+    final String path_s)
+    throws IOException
+  {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(
+        "lchown {} (uid {} gid {})",
+        path_s,
+        Integer.valueOf(uid),
+        Integer.valueOf(gid));
+    }
+
+    final int r = this.posix.lchown(path_s, uid, gid);
+    final int errno = this.posix.errno();
+    this.check("lchown", path_s, "Could not set link owner", r, errno);
+  }
+
+  private void chmod(
+    final int mode,
+    final String path_s)
+    throws IOException
+  {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(
+        "chmod {} (mode {})",
+        path_s,
+        Integer.toOctalString(mode));
+    }
+
+    final int r = this.posix.chmod(path_s, mode);
+    final int errno = this.posix.errno();
+    this.check("chmod", path_s, "Could not set mode", r, errno);
+  }
+
+  private void chown(
+    final int uid,
+    final int gid,
+    final String path_s)
+    throws IOException
+  {
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(
+        "chown {} (uid {} gid {})",
+        path_s,
+        Integer.valueOf(uid),
+        Integer.valueOf(gid));
+    }
+
+    final int r = this.posix.chown(path_s, uid, gid);
+    final int errno = this.posix.errno();
+    this.check("chown", path_s, "Could not set owner", r, errno);
   }
 
   private Path download(

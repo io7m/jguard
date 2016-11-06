@@ -55,6 +55,30 @@ Usage: jguard [options] [command] [command options]
             Default: info
             Possible Values: [trace, debug, info, warn, error]
 
+    create-jail      Create a jail
+      Usage: create-jail [options]
+        Options:
+        * -base
+            The base directory
+        * -base-template
+            The base template directory
+        * -hostname
+            The jail hostname
+          -ipv4
+            The jail IPv4 address
+          -ipv6
+            The jail IPv6 address
+        * -name
+            The jail name
+        * -root
+            The jail directory
+        * -start-command
+            The command that will be executed inside the jail on startup
+          -verbose
+            Set the minimum logging verbosity level
+            Default: info
+            Possible Values: [trace, debug, info, warn, error]
+
     version      Retrieve the program version
       Usage: version [options]
         Options:
@@ -62,5 +86,3 @@ Usage: jguard [options] [command] [command options]
             Set the minimum logging verbosity level
             Default: info
             Possible Values: [trace, debug, info, warn, error]
-
-

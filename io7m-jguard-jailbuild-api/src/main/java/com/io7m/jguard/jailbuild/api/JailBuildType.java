@@ -16,9 +16,12 @@
 
 package com.io7m.jguard.jailbuild.api;
 
+import com.io7m.jguard.core.JailConfiguration;
+
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -115,4 +118,28 @@ public interface JailBuildType
     JailArchiveFormat format,
     Path base)
     throws IOException;
+
+  /**
+   * Create a new jail.
+   *
+   * @param base          The base directory that will be mounted inside the
+   *                      jail
+   * @param base_template The template directory
+   * @param config        The jail configuration
+   *
+   * @throws NotDirectoryException      If {@code base} is not a directory
+   * @throws NotDirectoryException      If {@code base_template} is not a
+   *                                    directory
+   * @throws FileAlreadyExistsException If a jail already exists with the given
+   *                                    name
+   * @throws IOException                On errors
+   */
+
+  void jailCreate(
+    Path base,
+    Path base_template,
+    JailConfiguration config)
+    throws IOException,
+    FileAlreadyExistsException,
+    NotDirectoryException;
 }

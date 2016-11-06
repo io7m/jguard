@@ -24,6 +24,7 @@ import com.io7m.jfunctional.Unit;
 import com.io7m.jguard.core.JailConfiguration;
 import com.io7m.jguard.core.JailConfigurationError;
 import com.io7m.jguard.core.JailConfigurations;
+import com.io7m.jguard.core.JailName;
 import com.io7m.jguard.jailbuild.api.JailArchiveFormat;
 import com.io7m.jguard.jailbuild.api.JailBuildType;
 import com.io7m.jguard.jailbuild.api.JailDownloadOctetsPerSecond;
@@ -40,7 +41,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.InputStream;
+import java.net.Inet4Address;
+import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.URI;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -86,22 +91,26 @@ public final class Main implements Runnable
       new CommandStart();
     final CommandDownloadBinaryArchive download =
       new CommandDownloadBinaryArchive();
-    final CommandCreateJailBase create_base =
+    final CommandCreateJailBase create_jail_base =
       new CommandCreateJailBase();
+    final CommandCreateJail create_jail =
+      new CommandCreateJail();
     final CommandVersion version =
       new CommandVersion();
 
     this.commands = new HashMap<>(8);
     this.commands.put("start", start);
     this.commands.put("download-base-archive", download);
-    this.commands.put("create-jail-base", create_base);
+    this.commands.put("create-jail-base", create_jail_base);
+    this.commands.put("create-jail", create_jail);
     this.commands.put("version", version);
 
     this.commander = new JCommander(r);
     this.commander.setProgramName("jguard");
     this.commander.addCommand("start", start);
     this.commander.addCommand("download-base-archive", download);
-    this.commander.addCommand("create-jail-base", create_base);
+    this.commander.addCommand("create-jail-base", create_jail_base);
+    this.commander.addCommand("create-jail", create_jail);
     this.commander.addCommand("version", version);
   }
 
@@ -211,6 +220,132 @@ public final class Main implements Runnable
     }
   }
 
+  @Parameters(commandDescription = "Create a jail")
+  private final class CommandCreateJail extends CommandRoot
+  {
+    @Parameter(
+      names = "-base",
+      required = true,
+      description = "The base directory")
+    private String base;
+
+    @Parameter(
+      names = "-base-template",
+      required = true,
+      description = "The base template directory")
+    private String base_template;
+
+    @Parameter(
+      names = "-name",
+      required = true,
+      description = "The jail name")
+    private String jail_name;
+
+    @Parameter(
+      names = "-hostname",
+      required = true,
+      description = "The jail hostname")
+    private String jail_hostname;
+
+    @Parameter(
+      names = "-root",
+      required = true,
+      description = "The jail directory")
+    private String root;
+
+    @Parameter(
+      names = "-ipv4",
+      description = "The jail IPv4 address")
+    private String ipv4;
+
+    @Parameter(
+      names = "-ipv6",
+      description = "The jail IPv6 address")
+    private String ipv6;
+
+    @Parameter(
+      names = "-start-command",
+      required = true,
+      description = "The command that will be executed inside the jail on startup")
+    private String start_command;
+
+    CommandCreateJail()
+    {
+
+    }
+
+    @Override
+    public Unit call()
+      throws Exception
+    {
+      super.call();
+
+      final Path jail_base =
+        Paths.get(this.base).toAbsolutePath();
+      final Path jail_base_template =
+        Paths.get(this.base_template).toAbsolutePath();
+
+      LOG.debug("base:          {}", jail_base);
+      LOG.debug("base-template: {}", jail_base_template);
+
+      final ExecutorService pool =
+        Executors.newSingleThreadExecutor();
+
+      try {
+        final JailBuildType jb = JailBuild.get(
+          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+
+        List<Inet4Address> ipv4_list = List.empty();
+        if (this.ipv4 != null) {
+          final InetAddress address = Inet4Address.getByName(this.ipv4);
+          if (address instanceof Inet4Address) {
+            ipv4_list = List.of((Inet4Address) address);
+          } else {
+            LOG.error("not an ipv4 address: {}", address);
+            Main.this.exit_code = 1;
+            return unit();
+          }
+        }
+
+        List<Inet6Address> ipv6_list = List.empty();
+        if (this.ipv6 != null) {
+          final InetAddress address = Inet6Address.getByName(this.ipv6);
+          if (address instanceof Inet6Address) {
+            ipv6_list = List.of((Inet6Address) address);
+          } else {
+            LOG.error("not an ipv6 address: {}", address);
+            Main.this.exit_code = 1;
+            return unit();
+          }
+        }
+
+        final JailConfiguration.Builder b = JailConfiguration.builder();
+        b.setHostname(this.jail_hostname);
+        b.setName(JailName.of(this.jail_name));
+        b.setPath(Paths.get(this.root).toAbsolutePath());
+        b.setStartCommand(List.of(this.start_command.split("\\s+")));
+        b.setIpv4Addresses(ipv4_list);
+        b.setIpv6Addresses(ipv6_list);
+
+        jb.jailCreate(jail_base, jail_base_template, b.build());
+
+        return unit();
+      } catch (final FileAlreadyExistsException e) {
+        LOG.error("file already exists: {}", e.getMessage());
+        Main.this.exit_code = 1;
+        return unit();
+      } catch (final IllegalArgumentException e) {
+        LOG.error("parameter error: {}", e.getMessage());
+        Main.this.exit_code = 1;
+        return unit();
+      } finally {
+        LOG.debug("stopping thread pool");
+        pool.shutdown();
+        pool.awaitTermination(10L, TimeUnit.SECONDS);
+      }
+    }
+  }
+
   @Parameters(commandDescription = "Create a base jail and template from an archive")
   private final class CommandCreateJailBase extends CommandRoot
   {
@@ -261,10 +396,11 @@ public final class Main implements Runnable
 
       final ExecutorService pool =
         Executors.newSingleThreadExecutor();
-      final JailBuildType jb =
-        JailBuild.get(JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
 
       try {
+        final JailBuildType jb = JailBuild.get(
+          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+
         if (this.archive_format == null) {
           final Optional<JailArchiveFormat> format_opt =
             JailArchiveFormat.inferFrom(jail_base_archive);
@@ -341,14 +477,15 @@ public final class Main implements Runnable
       final String archive_release = this.getRelease();
       LOG.debug("release: {}", archive_release);
 
-      final ExecutorService pool = Executors.newSingleThreadExecutor();
-      final JailBuildType jb =
-        JailBuild.get(JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
-
       final Path out_file = Paths.get(this.file);
       final Path out_file_tmp = Paths.get(this.file + ".tmp");
 
+      final ExecutorService pool = Executors.newSingleThreadExecutor();
+
       try {
+        final JailBuildType jb = JailBuild.get(
+          JailBuild.clients(), POSIXFactory.getNativePOSIX(), pool);
+
         int attempt = 0;
 
         while (true) {
