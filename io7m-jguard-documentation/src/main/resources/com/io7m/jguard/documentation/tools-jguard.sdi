@@ -1,5 +1,5 @@
 [section [title "jguard"] [id tools.jguard]]
-[subsection [title Synopsis]]
+[subsection [title Synopsis] [id tools.jguard.synopsis]]
 [paragraph]
 The [term [type command] jguard] command provides various
 functions for creating and supervising FreeBSD jails.

@@ -1,5 +1,5 @@
 [section [title Installation] [id pkg.install]]
-[subsection [title Source compilation]]
+[subsection [title Source compilation] [id pkg.install.source]]
 [paragraph]
 The project can be compiled and installed with
 [link-ext [target "http://maven.apache.org"] Maven]:
