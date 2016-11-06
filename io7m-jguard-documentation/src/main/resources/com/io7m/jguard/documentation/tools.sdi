@@ -1,2 +1,2 @@
-[part [title Command Line Tools]]
+[part [title Command Line Tools] [id tools]]
 [import "tools-jguard.sdi"]

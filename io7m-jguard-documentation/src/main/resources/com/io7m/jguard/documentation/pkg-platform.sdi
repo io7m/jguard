@@ -1,4 +1,4 @@
-[section [title Platform Specific Issues]]
+[section [title Platform Specific Issues] [id pkg.platform]]
 [paragraph]
 The package only works on
 [link-ext [target "http://www.freebsd.org"] FreeBSD].
