@@ -34,7 +34,7 @@ public interface JailNameType
    */
 
   Pattern NAME_FORMAT = Pattern.compile(
-    "[\\p{IsAlphabetic}\\p{IsDigit}_]+",
+    "[\\p{IsAlphabetic}\\p{IsDigit}_-]+",
     Pattern.CASE_INSENSITIVE
       | Pattern.UNICODE_CHARACTER_CLASS
       | Pattern.UNICODE_CASE);

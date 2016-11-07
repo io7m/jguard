@@ -28,7 +28,7 @@ public final class JailNameTest
   @Test
   public void testNameValid()
   {
-    JailName.of("Aa_0");
+    JailName.of("Aa_0-");
   }
 
   @Test
@@ -42,7 +42,7 @@ public final class JailNameTest
   public void testNameInvalid1()
   {
     this.expected.expect(IllegalArgumentException.class);
-    JailName.of("-");
+    JailName.of("|");
   }
 
   @Test
