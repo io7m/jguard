@@ -277,7 +277,7 @@ public final class JailConfigurationsTest
     throws Exception
   {
     final Properties props = new Properties();
-    props.setProperty("name", "jail-0");
+    props.setProperty("name", "jail~0");
     props.setProperty("path", "/tmp");
     props.setProperty("start_command", "/bin/sh -e -x");
     props.setProperty("hostname", "jail0.example.com");
