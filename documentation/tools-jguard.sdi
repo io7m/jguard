@@ -1,0 +1,96 @@
+[section [title "jguard"] [id tools.jguard]]
+[subsection [title Synopsis] [id tools.jguard.synopsis]]
+[paragraph]
+The [term [type command] jguard] command provides various
+functions for creating and supervising FreeBSD jails.
+
+[paragraph]
+[verbatim [type terminal] [include "tools-jguard-usage.txt"]]
+
+[paragraph]
+The command line tool is distributed as part of the executable
+[term [type file] "io7m-jguard-cmdline-0.1.0-main.jar"]
+file "(referred" to as [term [type command] "jguard.jar"] in usage examples,
+for "brevity):"
+
+[paragraph]
+[verbatim [type terminal] "$ java -jar io7m-jguard-cmdline-0.1.0-main.jar"]
+
+[subsection [title version] [id tools.jguard.version]]
+[paragraph]
+The [term [type command] version] subcommand displays the version of the
+package.
+
+[subsection [title start] [id tools.jguard.start]]
+[paragraph]
+The [term [type command] start] subcommand parses the given jail configuration
+file and starts the specified jail. The command directly executes a process
+within the specified jail: The current process image is completely replaced
+with the specified jail command and is intended to be used with a process
+supervision system.
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar start -file jail0.conf"]
+
+[subsection [title download-base-archive] [id tools.jguard.download_base_archive]]
+[paragraph]
+The [term [type command] download-base-archive] subcommand downloads an
+installation archive intended for creating new jails. Typically, this archive
+will be the [term [type file] base.txz] file distributed with FreeBSD
+releases.
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar download-base-archive -archive /usr/jail/base.txz"]
+
+[paragraph [id tools.jguard.download_base_archive.proxy]]
+The command supports the use of HTTP proxies via the standard Java
+[term [type variable] http.proxyHost] and [term [type variable] http.proxyPort]
+properties:
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar
+  -Dhttp.proxyHost=proxy.example.com
+  -Dhttp.proxyPort=3128
+  download-base-archive
+  -archive /usr/jail/base.txz"]
+
+[paragraph]
+Note that as of the time of writing, [link-ext [target "https://ftp.freebsd.org"] ftp.freebsd.org]
+currently has a misconfigured TLS certificate "(the " certificate is only valid
+for [link-ext [target "https://download.freebsd.org"] download.freebsd.org] ")"
+and therefore the command will fail with a TLS error when attempting to use
+the [term [type protocol] https] site. Additionally, the FreeBSD project does
+not provide PGP signatures for the individual binary archives from the FTP
+sites and, bizarrely, instead relies on providing them via the
+[link-ext [target "https://svnweb.freebsd.org/ports/head/misc/freebsd-release-manifests/"] "misc/freebsd-release-manifests"]
+package. It is STRONGLY recommended to check the signatures of any downloaded
+archives against the signatures in this package.
+
+[subsection [title create-jail-base] [id tools.jguard.create_jail_base]]
+[paragraph]
+The [term [type command] create-jail-base] subcommand unpacks an archive
+containing a FreeBSD base system and creates [term [type file] base]
+and [term [type file] base-template] directories that are shared between
+jail instances.
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar
+  create-jail-base
+  -archive /usr/jail/base.txz
+  -base /usr/jail/base
+  -base-template /usr/jail/base-template"]
+
+[subsection [title create-jail] [id tools.jguard.create_jail]]
+[paragraph]
+The [term [type command] create-jail] subcommand creates a new jail.
+
+[paragraph]
+[verbatim [type terminal] "# java -jar jguard.jar
+  create-jail
+  -base /usr/jail/base
+  -base-template /usr/jail/base-template
+  -hostname jail0.example.com
+  -name jail0_example_com
+  -root /usr/jail/jail0.example.com
+  -start-command \"/usr/local/bin/s6-svscan /service\"
+  -ipv4 10.8.0.23"]
